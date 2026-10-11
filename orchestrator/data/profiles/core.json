@@ -1,0 +1,7 @@
+{
+    "name":  "core",
+    "description":  "Always visible to the agent. Keep this tiny: every hot skill spends listing budget on every turn.",
+    "include":  [
+                    "*/skills-orchestrator"
+                ]
+}

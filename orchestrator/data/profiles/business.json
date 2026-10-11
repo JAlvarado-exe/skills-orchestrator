@@ -1,0 +1,12 @@
+{
+    "name":  "business",
+    "description":  "Testing a business idea, pricing, positioning and sales material.",
+    "include":  [
+                    "*/founder-*",
+                    "*/pricing",
+                    "*/cold-email",
+                    "*/copywriting",
+                    "*/sales-enablement",
+                    "*/competitive-brief"
+                ]
+}

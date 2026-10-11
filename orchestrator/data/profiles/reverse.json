@@ -1,0 +1,10 @@
+{
+    "name":  "reverse",
+    "description":  "Dual use. Analyzing software or sites. Only for targets you own or are authorized in writing to analyze. Off by default.",
+    "include":  [
+                    "*/api-anything",
+                    "*/reverse-engineer-anything",
+                    "*/rea-*",
+                    "*/moli-cdp-server"
+                ]
+}

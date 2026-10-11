@@ -1,0 +1,13 @@
+{
+    "name":  "docs",
+    "description":  "Writing and diagrams: documentation, architecture decision records, diagrams, outbound prose.",
+    "include":  [
+                    "*/documentation-and-adrs",
+                    "*/diagram-design",
+                    "*/humanizer",
+                    "*/writing-*",
+                    "*/copywriting",
+                    "*/handoff",
+                    "*/to-spec"
+                ]
+}

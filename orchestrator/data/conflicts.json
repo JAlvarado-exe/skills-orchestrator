@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "note": "Hand-written. Members are fnmatch patterns on registry ids (source/name). 'tools' lists non-skill programs that belong to the same decision. Policies: compose = use each member for its own phase or layer; prefer-by-context = use exactly one, chosen from project signals; owner-pin = off unless the owner turns it on.",
+  "clusters": [
+    {
+      "id": "tdd",
+      "topic": "Test-driven development",
+      "relation": "alternatives",
+      "members": ["*/test-driven-development", "*/tdd"],
+      "policy": "prefer-by-context",
+      "guidance": "All teach red-green-refactor. Use the one the project already follows and never run two in the same task. With no preference, pick the one with the strictest 'verify before claiming done' wording."
+    },
+    {
+      "id": "plan-and-spec",
+      "topic": "From idea to plan",
+      "relation": "complementary",
+      "members": ["*/brainstorming", "*/idea-refine", "*/spec-driven-development", "*/to-spec", "*/writing-plans", "*/planning-and-task-breakdown", "*/to-tickets", "*/write-spec"],
+      "policy": "compose",
+      "guidance": "These are phases of one flow, not rivals: explore, then spec, then plan, then tickets. Run one skill per phase. The gate scales with the task: more than 3 files needs a written plan; a small change needs a one-paragraph confirmation."
+    },
+    {
+      "id": "clarifying-questions",
+      "topic": "Asking the user before building",
+      "relation": "alternatives",
+      "members": ["*/grill-me", "*/grilling", "*/grill-with-docs", "*/interview-me", "*/idea-refine", "*/brainstorming"],
+      "policy": "prefer-by-context",
+      "guidance": "All interview the user before work starts. Use one. Ask only questions whose answers change the work, prefer multiple choice, and stop asking when the remaining unknowns do not change the plan."
+    },
+    {
+      "id": "debugging",
+      "topic": "Finding the cause of a bug",
+      "relation": "alternatives",
+      "members": ["*/systematic-debugging", "*/diagnosing-bugs", "*/debugging-and-error-recovery", "*/debug"],
+      "policy": "prefer-by-context",
+      "guidance": "Pick one. Whatever the choice, reproduce first, find the root cause before editing, and add a regression test."
+    },
+    {
+      "id": "code-review",
+      "topic": "Reviewing a change",
+      "relation": "alternatives",
+      "members": ["*/code-review", "*/code-review-and-quality", "*/requesting-code-review", "*/receiving-code-review"],
+      "policy": "prefer-by-context",
+      "guidance": "Review before merge in a fresh context that did not write the change. Security-sensitive code also needs a dedicated security review; a general review does not replace it."
+    },
+    {
+      "id": "process-weight",
+      "topic": "Minimal code versus full process",
+      "relation": "contradictory",
+      "members": ["*/ponytail*", "*/incremental-implementation", "*/test-driven-development", "*/brainstorming"],
+      "policy": "compose",
+      "guidance": "Minimalist skills decide how much code to write; process skills decide how to verify it. Never cut validation, error handling, security or tests to satisfy a minimalist skill. When they pull apart, the owner's written rules break the tie."
+    },
+    {
+      "id": "output-compression",
+      "topic": "Saving context and output tokens",
+      "relation": "complementary",
+      "members": ["*/caveman", "*/ponytail*", "*/context-mode", "*/ctx-*"],
+      "tools": ["rtk (shell output filter, binary)", "context-mode (MCP server and hooks)"],
+      "policy": "compose",
+      "guidance": "Different layers: caveman shortens chat prose, ponytail limits how much code is written, rtk filters shell output, context-mode sandboxes large non-shell data. Do not run two tools that rewrite the same tool's output (rtk and context-mode on Bash); pick one per matcher. Run `doctor` to detect hook collisions."
+    },
+    {
+      "id": "code-intelligence",
+      "topic": "Querying a codebase structurally",
+      "relation": "alternatives",
+      "members": ["*/graphify"],
+      "tools": ["codebase-memory-mcp (local binary, no model calls)", "graphify (knowledge graph, model-assisted for docs)"],
+      "policy": "prefer-by-context",
+      "guidance": "Structural questions about source code: codebase-memory-mcp. Mixed material (docs, PDFs, images, video): graphify. Do not index the same repository with both in one session."
+    },
+    {
+      "id": "web-access",
+      "topic": "Reading or acting on websites",
+      "relation": "alternatives",
+      "members": ["*/moli-*", "*/api-anything", "*/deep-research", "*/built-in-browser", "*/chrome-browser"],
+      "policy": "prefer-by-context",
+      "guidance": "Reading public pages: a headless fetcher. Interactive or logged-in work: the platform's browser tool. Repeated calls to one site you are allowed to automate: a saved API operation. Multi-source research: a research skill."
+    },
+    {
+      "id": "prose-style",
+      "topic": "Terse chat versus polished text",
+      "relation": "contradictory",
+      "members": ["*/caveman", "*/humanizer", "*/copywriting"],
+      "policy": "prefer-by-context",
+      "guidance": "Chat replies may be terse. Anything that leaves the conversation (documents, commits, messages to other people, published copy) is written in normal prose. Never apply a compression style to outbound text."
+    },
+    {
+      "id": "business-validation",
+      "topic": "Testing a business idea or its pricing",
+      "relation": "complementary",
+      "members": ["*/founder-*", "*/pricing", "*/competitive-brief", "*/market-checker"],
+      "policy": "compose",
+      "guidance": "Before launch: the founder-* skills. Pricing of a product already in the market: pricing. Named competitors with dated sources: a market-check step that cites sources. Do not present model opinion as market data."
+    },
+    {
+      "id": "reverse-engineering",
+      "topic": "Analyzing software or sites you did not write",
+      "relation": "complementary",
+      "members": ["*/api-anything", "*/reverse-engineer-anything", "*/rea-*"],
+      "tools": ["reverse-api-engineer (traffic capture to API client)"],
+      "policy": "owner-pin",
+      "guidance": "Dual use. Only for software or sites you own or are authorized in writing to analyze. Off unless the user names the target and confirms authorization in the conversation."
+    }
+  ]
+}
