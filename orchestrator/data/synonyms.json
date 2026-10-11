@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "note": "Query expansion only. Words in a group are treated as related at half weight. Phrases append extra words when they appear in the request. Edit freely: this is vocabulary, not logic.",
+  "groups": [
+    ["bug", "failure", "fail", "broken", "crash", "error", "exception", "regression", "defect"],
+    ["search", "lookup", "research", "online", "web", "internet"],
+    ["ai", "robot", "machine", "chatbot", "llm", "bot"],
+    ["paragraph", "prose", "wording", "sentence"],
+    ["verbose", "brief", "terse", "concise", "wordy", "compress"],
+    ["handoff", "resume", "pause", "continuity", "pickup"],
+    ["ci", "cd", "pipeline", "deploy", "deployment", "release"],
+    ["refactor", "simplify", "simplification", "cleanup", "restructure"],
+    ["price", "pricing", "cost", "charge", "monetize", "monetization"],
+    ["security", "vulnerability", "vuln", "audit", "pentest", "hardening"],
+    ["document", "documentation", "docs", "readme", "adr"],
+    ["diagram", "flowchart", "sketch", "visualize"],
+    ["email", "mail", "outreach", "prospecting"],
+    ["performance", "speed", "slow", "latency", "loading", "optimize", "optimization"],
+    ["question", "ask", "interview", "grill", "clarify", "clarifying"],
+    ["competitor", "competition", "rival"],
+    ["review", "inspect", "critique"]
+  ],
+  "phrases": {
+    "look up": "search lookup",
+    "continuous integration": "ci pipeline",
+    "continuous delivery": "cd pipeline",
+    "continuous deployment": "cd deploy",
+    "next session": "handoff resume",
+    "no idea why": "cause diagnose bug",
+    "keeps failing": "failure bug",
+    "knowledge graph": "graph knowledge index"
+  }
+}

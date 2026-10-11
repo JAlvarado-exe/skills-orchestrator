@@ -67,6 +67,31 @@ def _is_internal(root_spec: dict, root: str, skill_dir: str) -> bool:
     return any(part.startswith(".") or part in INTERNAL_DIRS for part in inside)
 
 
+def catalog_entries(path: str):
+    """Entries for tools that have no SKILL.md (CLIs, MCP servers, hooks), read from a catalog JSON file."""
+    import hashlib
+    import json
+    import re
+
+    with open(path, "r", encoding="utf-8") as handle:
+        data = json.load(handle)
+    entries = []
+    for item in data.get("items", []):
+        if item.get("kind") not in ("cli", "mcp", "hook", "gateway"):
+            continue
+        slug = re.sub(r"[^a-z0-9]+", "-", item["name"].lower()).strip("-")
+        entries.append({
+            "id": "catalog/" + slug, "name": item["name"], "source": "catalog", "sources": ["catalog"], "platforms": [],
+            "hot": False, "hot_platforms": [], "internal": False, "kind": "tool",
+            "description": (item.get("what", "") + " " + item.get("impact", ""))[:DESCRIPTION_STORE_LIMIT],
+            "when_to_use": item.get("activation", "")[:DESCRIPTION_STORE_LIMIT],
+            "path": item.get("upstream", ""), "upstream": item.get("upstream", ""), "paths": [], "variants": [],
+            "sha256": hashlib.sha256(json.dumps(item, sort_keys=True).encode("utf-8")).hexdigest(), "bytes": 0,
+            "frontmatter_ok": True, "listed": False, "est_tokens": 0, "rating": item.get("rating"), "risk": item.get("risk"),
+        })
+    return sorted(entries, key=lambda e: e["id"])
+
+
 def estimate_tokens(name: str, description: str, when_to_use: str) -> int:
     text = (description + " " + when_to_use).strip()
     return int(math.ceil((len(name) + min(len(text), LISTING_DESC_LIMIT) + 30) / 4.0))

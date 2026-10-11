@@ -14,7 +14,7 @@ from .overrides import apply_overrides, load_overrides
 from .platforms import load_platforms, resolve_roots
 from .profiles import filter_entries, load_profile
 from .sanitize import sanitize
-from .scan import build_registry, find_skill_files
+from .scan import build_registry, catalog_entries, find_skill_files
 from .search import rank
 from .vet import SEVERITIES, vet_path
 
@@ -70,6 +70,8 @@ def cmd_scan(args) -> int:
         roots, _missing = resolve_roots(load_platforms(args.platforms or DEFAULT_PLATFORMS), home=args.home)
         specs = roots + specs
     registry = build_registry(specs)
+    for path in args.catalog:
+        registry["entries"] = sorted(registry["entries"] + catalog_entries(path), key=lambda e: e["id"])
     if args.check:
         files = set()
         for spec in specs:
@@ -113,7 +115,8 @@ def cmd_find(args) -> int:
             return 2
     results = rank(pool, " ".join(args.query), k=args.k)
     shaped = [{"id": e["id"], "score": round(score, 3), "path": e["path"], "hot": e.get("hot", False),
-               "platforms": e.get("platforms", []), "variants": len(e.get("variants", [])),
+               "platforms": e.get("platforms", []), "variants": len(e.get("variants", [])), "kind": e.get("kind", "skill"),
+               **({"upstream": e["upstream"]} if e.get("upstream") else {}),
                "description_untrusted": sanitize(e.get("description", ""), 300),
                **({"note": sanitize(e["note"], 300)} if e.get("note") else {})} for score, e in results]
     if args.json:
@@ -233,6 +236,7 @@ def build_parser():
     scan = sub.add_parser("scan", help="build the registry")
     scan.add_argument("--root", action="append", default=[], help="directory to scan, optionally PATH::SOURCE (repeatable)")
     scan.add_argument("--vendor", action="append", default=[], help="directory of cloned repos; each child folder is a source")
+    scan.add_argument("--catalog", action="append", default=[], help="catalog.json whose CLI/MCP/hook items become searchable tool entries (repeatable)")
     scan.add_argument("--platforms", help="platforms.json to read roots from (default when no --root is given)")
     scan.add_argument("--home", help="home directory used to expand ~ (testing)")
     scan.add_argument("--out", help="registry file to write")
