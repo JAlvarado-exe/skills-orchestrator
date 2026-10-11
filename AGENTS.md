@@ -53,7 +53,7 @@ When adding a vet rule: include one input that must fire and one near-miss that 
 - English only in code, data, docs and commit messages. `scripts/check_english.py` flags Spanish prose.
 - Never add personal paths, home directories, email addresses, machine names or tokens. Use `~` for home folders and placeholders such as `<folder>`. `scripts/check_privacy.py` flags Windows and POSIX home paths and email addresses.
 - The generated registry (`registry.json`) contains local paths and is git-ignored. Never commit it, paste it into an issue, or use it as a test fixture.
-- Never read or write `.env` files, and never put secrets in the repository.
+- Keep secrets and environment-variable files out of the repository and out of test fixtures.
 
 ## Things to be careful with
 

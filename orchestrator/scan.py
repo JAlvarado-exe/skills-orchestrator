@@ -2,9 +2,15 @@
 from __future__ import annotations
 
 import datetime
+import hashlib
+import json
 import math
 import os
+import re
+import sys
 
+from .jsonio import read_json
+from .sanitize import sanitize
 from .skillfile import read_skill
 
 EXCLUDE_DIRS = {"node_modules", ".git", "__pycache__", ".venv", "venv", ".trash"}
@@ -12,26 +18,51 @@ EXCLUDE_DIRS = {"node_modules", ".git", "__pycache__", ".venv", "venv", ".trash"
 INTERNAL_DIRS = {"configs", "docs", "examples", "tests", "test", "evals", "worked", "website", "fixtures"}
 SKILL_FILE = "SKILL.md"
 DESCRIPTION_STORE_LIMIT = 4000
+SOURCE_LIMIT = 100
 LISTING_DESC_LIMIT = 1536  # per-entry cap Claude Code applies to description + when_to_use
 
 
-def find_skill_files(root: str, max_depth: int = 12):
-    """Return real SKILL.md paths under root. Follows links, guarded against loops."""
+def _inside(real_root: str, real: str) -> bool:
+    try:
+        return os.path.commonpath([os.path.normcase(real_root), os.path.normcase(real)]) == os.path.normcase(real_root)
+    except ValueError:  # different drives
+        return False
+
+
+def spec_contain(spec: dict) -> bool:
+    """Cloned third-party repositories are walked without leaving their own tree unless the spec says otherwise."""
+    if "contain" in spec:
+        return bool(spec["contain"])
+    return spec.get("source_from") == "first-child"
+
+
+def find_skill_files(root: str, max_depth: int = 12, contain: bool = False):
+    """Return real SKILL.md paths under root. Follows links, guarded against loops.
+
+    With contain=True nothing whose real path lies outside the root is entered or indexed.
+    """
     found = []
     visited = set()
     root = os.path.abspath(root)
+    real_root = os.path.realpath(root)
     base_depth = root.rstrip(os.sep).count(os.sep)
     for dirpath, dirs, files in os.walk(root, followlinks=True):
         real = os.path.realpath(dirpath)
+        if contain and not _inside(real_root, real):
+            dirs[:] = []
+            continue
         if real in visited:
             dirs[:] = []
             continue
         visited.add(real)
         if dirpath.rstrip(os.sep).count(os.sep) - base_depth >= max_depth:
             dirs[:] = []
-        dirs[:] = sorted(d for d in dirs if d not in EXCLUDE_DIRS)
+        # visible folders before hidden ones: when a hidden folder links to a visible one, the visible path is kept
+        dirs[:] = sorted((d for d in dirs if d not in EXCLUDE_DIRS), key=lambda d: (d.startswith("."), d))
         if SKILL_FILE in files:
-            found.append(os.path.join(dirpath, SKILL_FILE))
+            skill_path = os.path.join(dirpath, SKILL_FILE)
+            if not contain or _inside(real_root, os.path.realpath(skill_path)):
+                found.append(skill_path)
     return sorted(found)
 
 
@@ -53,10 +84,12 @@ def _source_for(root_spec: dict, root: str, skill_dir: str) -> str:
     mode = root_spec.get("source_from", "fixed")
     parts = _rel_parts(root, skill_dir)
     if mode == "first-child" and parts:
-        return parts[0]
-    if mode == "plugin-cache" and parts:
-        return "plugin:" + (parts[1] if len(parts) >= 2 else parts[0])
-    return root_spec.get("source") or os.path.basename(root.rstrip("\\/")) or "unknown"
+        source = parts[0]
+    elif mode == "plugin-cache" and parts:
+        source = "plugin:" + (parts[1] if len(parts) >= 2 else parts[0])
+    else:
+        source = root_spec.get("source") or os.path.basename(root.rstrip("\\/")) or "unknown"
+    return sanitize(source, SOURCE_LIMIT) or "unknown"
 
 
 def _is_internal(root_spec: dict, root: str, skill_dir: str) -> bool:
@@ -67,26 +100,37 @@ def _is_internal(root_spec: dict, root: str, skill_dir: str) -> bool:
     return any(part.startswith(".") or part in INTERNAL_DIRS for part in inside)
 
 
+def _text(value) -> str:
+    return value if isinstance(value, str) else ""
+
+
 def catalog_entries(path: str):
     """Entries for tools that have no SKILL.md (CLIs, MCP servers, hooks), read from a catalog JSON file."""
-    import hashlib
-    import json
-    import re
-
-    with open(path, "r", encoding="utf-8") as handle:
-        data = json.load(handle)
+    data = read_json(path)
+    items = data.get("items", []) if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        print("warning: catalog %s is not an object with an items list: ignored" % path, file=sys.stderr)
+        return []
     entries = []
-    for item in data.get("items", []):
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            print("warning: catalog item %d is not an object: skipped" % index, file=sys.stderr)
+            continue
         if item.get("kind") not in ("cli", "mcp", "hook", "gateway"):
             continue
-        slug = re.sub(r"[^a-z0-9]+", "-", item["name"].lower()).strip("-")
+        name = item.get("name")
+        if not isinstance(name, str) or not name.strip():
+            print("warning: catalog item %d has no text name: skipped" % index, file=sys.stderr)
+            continue
+        slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or hashlib.sha256(name.encode("utf-8", "replace")).hexdigest()[:8]
+        upstream = _text(item.get("upstream"))
         entries.append({
-            "id": "catalog/" + slug, "name": item["name"], "source": "catalog", "sources": ["catalog"], "platforms": [],
+            "id": "catalog/" + slug, "name": name, "source": "catalog", "sources": ["catalog"], "platforms": [],
             "hot": False, "hot_platforms": [], "internal": False, "kind": "tool",
-            "description": (item.get("what", "") + " " + item.get("impact", ""))[:DESCRIPTION_STORE_LIMIT],
-            "when_to_use": item.get("activation", "")[:DESCRIPTION_STORE_LIMIT],
-            "path": item.get("upstream", ""), "upstream": item.get("upstream", ""), "paths": [], "variants": [],
-            "sha256": hashlib.sha256(json.dumps(item, sort_keys=True).encode("utf-8")).hexdigest(), "bytes": 0,
+            "description": (_text(item.get("what")) + " " + _text(item.get("impact")))[:DESCRIPTION_STORE_LIMIT],
+            "when_to_use": _text(item.get("activation"))[:DESCRIPTION_STORE_LIMIT],
+            "path": upstream, "upstream": upstream, "paths": [], "variants": [],
+            "sha256": hashlib.sha256(json.dumps(item, sort_keys=True).encode("utf-8", "replace")).hexdigest(), "bytes": 0,
             "frontmatter_ok": True, "listed": False, "est_tokens": 0, "rating": item.get("rating"), "risk": item.get("risk"),
         })
     return sorted(entries, key=lambda e: e["id"])
@@ -121,7 +165,7 @@ def build_registry(root_specs):
         if not os.path.isdir(root):
             missing.append({"path": root, "platform": spec.get("platform"), "source": spec.get("source")})
             continue
-        paths = find_skill_files(root)
+        paths = find_skill_files(root, contain=spec_contain(spec))
         root_report.append({"path": root, "platform": spec.get("platform"), "files": len(paths)})
         for path in paths:
             real = os.path.realpath(path)
@@ -154,8 +198,9 @@ def build_registry(root_specs):
                 record["sources"].append(source)
             record["platforms"] = sorted(set(record["platforms"]) | set(platforms))
             record["hot_platforms"] = sorted(set(record["hot_platforms"]) | set(hot_platforms))
+            better = (internal, depth) < (record["internal"], record["depth"])
             record["internal"] = record["internal"] and internal
-            if (internal, depth) < (record["internal"], record["depth"]):
+            if better:
                 record["depth"], record["path"] = depth, real
 
     groups = {}
@@ -187,6 +232,8 @@ def build_registry(root_specs):
             "frontmatter_ok": info["frontmatter_ok"],
             "listed": info["listed"],
         }
+        if info.get("truncated"):
+            entry["truncated"] = True
         entry["est_tokens"] = estimate_tokens(name, entry["description"], entry["when_to_use"]) if info["listed"] else 0
         entries.append(entry)
     entries.sort(key=lambda e: e["id"])

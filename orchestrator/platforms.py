@@ -1,13 +1,13 @@
 """Platform adapters are data: a JSON file that lists where each agent platform keeps skills."""
 from __future__ import annotations
 
-import json
 import os
+
+from .jsonio import read_json
 
 
 def load_platforms(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as handle:
-        return json.load(handle)
+    return read_json(path)
 
 
 def _expand(path: str, home: str) -> str:

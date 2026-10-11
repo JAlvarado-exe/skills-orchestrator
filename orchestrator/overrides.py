@@ -4,17 +4,17 @@ Format: {"source/name": {"tags": ["extra", "search", "words"], "internal": false
 """
 from __future__ import annotations
 
-import json
 import os
+
+from .jsonio import read_json
 
 
 def load_overrides(path: str) -> dict:
     if not path or not os.path.isfile(path):
         return {}
     try:
-        with open(path, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
-    except (OSError, ValueError):
+        data = read_json(path)
+    except (OSError, ValueError, RecursionError):
         return {}
     return data if isinstance(data, dict) else {}
 

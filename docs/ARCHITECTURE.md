@@ -74,11 +74,11 @@ How entries are formed:
 5. **`hot`.** True when a platform root marked `hot` lists the skill. `doctor` sums `est_tokens` over hot, listed skills.
 6. **`listed`.** False when the frontmatter sets `disable-model-invocation` to a true value. Unlisted skills have `est_tokens` 0.
 7. **`est_tokens`.** `ceil((len(name) + min(len(description + when_to_use), 1536) + 30) / 4)`. It is a characters-divided-by-4 estimate, not a tokenizer measurement.
-8. **Descriptions** are stored raw (up to 4000 characters) and sanitized only when returned.
+8. **Descriptions** are stored raw (up to 4000 characters) and sanitized only when returned. Names and sources are sanitized and capped at 100 characters when read, and every third-party string (id, path, platforms, upstream, vet file names) is sanitized again when printed.
 
-Walking rules: excluded folders are `node_modules`, `.git`, `__pycache__`, `.venv`, `venv`, `.trash`; links are followed with a loop guard on real paths; maximum depth is 12. Frontmatter parsing is lenient: if `name` is missing the folder name is used; if `description` is missing the first paragraph of the body is used.
+Walking rules: excluded folders are `node_modules`, `.git`, `__pycache__`, `.venv`, `venv`, `.trash`; links are followed with a loop guard on real paths, visible folders before hidden ones; roots of cloned repositories (`--vendor`, or a spec with `contain`) do not follow links that leave the repository; maximum depth is 12. Frontmatter parsing is lenient: if `name` is missing the folder name is used; if `description` is missing the first paragraph of the body is used.
 
-`scan --check` writes nothing. It compares the number of distinct real `SKILL.md` files found with the number of paths in the registry and exits 1 on a mismatch. CI uses it on this repository's own `skills/` folder.
+`scan --check` writes nothing. It compares the number of distinct real `SKILL.md` files the walker found with the number of paths in the registry and exits 1 on a mismatch. It verifies that merging and de-duplication lost nothing; it does not prove that discovery found everything, because both sides use the same walker. CI uses it on this repository's own `skills/` folder.
 
 `--catalog FILE` adds entries of `kind: tool` (ids `catalog/<slug>`) for CLI, MCP, hook and gateway items in a catalog JSON file, so tools without a `SKILL.md` are searchable. They are never hot and cost 0 estimated tokens.
 

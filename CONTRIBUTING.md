@@ -23,7 +23,7 @@ Thanks for helping. This project is small on purpose: a standard-library Python 
 
 ## Checks
 
-Run from the repository root. CI runs the same commands on Ubuntu, Windows and macOS with Python 3.9 to 3.13.
+Run from the repository root. CI runs the same commands on Ubuntu, Windows and macOS with Python 3.9 to 3.14.
 
 ```text
 python -m unittest discover -s tests -t .

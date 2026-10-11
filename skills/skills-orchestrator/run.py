@@ -9,7 +9,12 @@ for candidate in (os.path.join(HERE, "..", ".."), os.path.join(HERE, "..")):
         sys.path.insert(0, os.path.abspath(candidate))
         break
 
-from orchestrator.cli import main  # noqa: E402
+try:
+    from orchestrator.cli import main  # noqa: E402
+except ImportError as exc:
+    sys.stderr.write("error: cannot import the orchestrator package (%s). Keep skills/skills-orchestrator/ next to "
+                     "the orchestrator/ folder of this repository.\n" % exc)
+    sys.exit(2)
 
 if __name__ == "__main__":
     sys.exit(main())

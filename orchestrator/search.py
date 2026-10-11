@@ -2,14 +2,18 @@
 
 Two small additions keep a lexical ranker useful for natural requests: a stemmer that collapses
 common inflections, and a data-driven table of synonym groups and phrases (data/synonyms.json)
-that expands the *query* only, at half weight, so exact words always outrank guesses.
+that expands the *query* only. Expansions are scored as evidence, not as extra words: each
+group (the synonyms of one query word, or the words of one matched phrase) contributes only its
+single best match, at half weight, and never for a word the user already typed. So an exact word
+outranks a document that merely lists many synonyms.
 """
 from __future__ import annotations
 
-import json
 import math
 import os
 import re
+
+from .jsonio import read_json
 
 _WORD = re.compile(r"[^\W_]+", re.UNICODE)
 STOPWORDS = frozenset(
@@ -24,17 +28,22 @@ _VOWELS = "aeiou"
 def _stem(token: str) -> str:
     if len(token) <= 3:
         return token
+    stem = token
     if len(token) > 4 and token.endswith("ies"):
-        return token[:-3] + "y"
-    for suffix in ("ing", "ed"):
-        if token.endswith(suffix) and len(token) - len(suffix) >= 4:
-            base = token[: -len(suffix)]
-            if base[-1] == base[-2] and base[-1] not in _VOWELS and base[-1] not in "lsz":
-                base = base[:-1]
-            return base
-    if token.endswith("s") and not token.endswith("ss"):
-        return token[:-1]
-    return token
+        stem = token[:-3] + "y"
+    else:
+        for suffix in ("ing", "ed"):
+            if token.endswith(suffix) and len(token) - len(suffix) >= 4:
+                stem = token[: -len(suffix)]
+                if stem[-1] == stem[-2] and stem[-1] not in _VOWELS and stem[-1] not in "lsz":
+                    stem = stem[:-1]
+                break
+        else:
+            if token.endswith("s") and not token.endswith("ss"):
+                stem = token[:-1]
+    if len(stem) > 4 and stem.endswith("e"):  # create / creating / created -> creat
+        stem = stem[:-1]
+    return stem
 
 
 def tokenize(text: str):
@@ -42,7 +51,10 @@ def tokenize(text: str):
     for raw in _WORD.findall((text or "").lower()):
         if raw in STOPWORDS or len(raw) < 2:
             continue
-        tokens.append(_stem(raw))
+        stem = _stem(raw)
+        if stem in STOPWORDS:
+            continue
+        tokens.append(stem)
     return tokens
 
 
@@ -50,13 +62,12 @@ _SYNONYMS = None
 
 
 def load_synonyms():
-    """Return (token -> set of related tokens, ordered list of (phrase, replacement words))."""
+    """Return (token -> set of related tokens, list of (compiled phrase pattern, replacement words))."""
     global _SYNONYMS
     if _SYNONYMS is None:
         related, phrases = {}, []
         try:
-            with open(SYNONYMS_FILE, "r", encoding="utf-8") as handle:
-                data = json.load(handle)
+            data = read_json(SYNONYMS_FILE)
         except (OSError, ValueError):
             data = {}
         for group in data.get("groups", []):
@@ -64,24 +75,27 @@ def load_synonyms():
             for stem in stems:
                 related.setdefault(stem, set()).update(stems - {stem})
         for phrase, words in data.get("phrases", {}).items():
-            phrases.append((phrase.lower(), words))
+            phrases.append((re.compile(r"\b" + re.escape(phrase.lower()) + r"\b"), words))
         _SYNONYMS = (related, phrases)
     return _SYNONYMS
 
 
-def query_weights(query: str):
-    """Map each query token to a weight: 1.0 for the user's words, 0.5 for expansions."""
+def query_terms(query: str):
+    """Return (the user's own tokens, a list of expansion groups). A group is a set of related tokens."""
     related, phrases = load_synonyms()
     lowered = (query or "").lower()
-    extra = " ".join(words for phrase, words in phrases if phrase in lowered)
-    weights = {t: 1.0 for t in tokenize(lowered)}
-    for token in tokenize(extra):
-        weights.setdefault(token, EXPANSION_WEIGHT)
-    for token in list(weights):
-        if weights[token] == 1.0:
-            for other in related.get(token, ()):
-                weights.setdefault(other, EXPANSION_WEIGHT)
-    return weights
+    exact = []
+    for token in tokenize(lowered):
+        if token not in exact:
+            exact.append(token)
+    typed = set(exact)
+    groups = [related[t] - typed for t in exact if related.get(t, set()) - typed]
+    for pattern, words in phrases:
+        if pattern.search(lowered):
+            group = set(tokenize(words)) - typed
+            if group:
+                groups.append(group)
+    return exact, groups
 
 
 def _doc_tokens(entry: dict):
@@ -90,8 +104,8 @@ def _doc_tokens(entry: dict):
 
 def rank(entries, query: str, k: int = 5, k1: float = 1.5, b: float = 0.75):
     """Return up to k (score, entry) pairs, best first. Only entries with score > 0."""
-    weights = query_weights(query)
-    if not weights or not entries:
+    exact, groups = query_terms(query)
+    if (not exact and not groups) or not entries:
         return []
     docs = [_doc_tokens(e) for e in entries]
     n = len(docs)
@@ -107,13 +121,17 @@ def rank(entries, query: str, k: int = 5, k1: float = 1.5, b: float = 0.75):
         tf = {}
         for token in doc:
             tf[token] = tf.get(token, 0) + 1
-        score = 0.0
-        for token, weight in weights.items():
-            if token not in tf:
-                continue
+        norm = k1 * (1.0 - b + b * len(doc) / avg)
+
+        def bm25(token):
+            freq = tf.get(token, 0)
+            if not freq:
+                return 0.0
             idf = math.log(1.0 + (n - df[token] + 0.5) / (df[token] + 0.5))
-            freq = tf[token]
-            score += weight * idf * (freq * (k1 + 1.0)) / (freq + k1 * (1.0 - b + b * len(doc) / avg))
+            return idf * (freq * (k1 + 1.0)) / (freq + norm)
+
+        score = sum(bm25(t) for t in exact)
+        score += EXPANSION_WEIGHT * sum(max(bm25(t) for t in group) for group in groups)
         if score > 0:
             scored.append((score, entry))
     scored.sort(key=lambda pair: (-pair[0], pair[1].get("id", "")))

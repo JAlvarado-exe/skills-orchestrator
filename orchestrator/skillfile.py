@@ -4,7 +4,12 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import stat
 
+from .sanitize import sanitize
+
+MAX_SKILL_BYTES = 2 * 1024 * 1024
+NAME_LIMIT = 100
 _KEY = re.compile(r"^([A-Za-z0-9_.\-]+)\s*:(.*)$")
 
 
@@ -98,8 +103,13 @@ def _truthy(value) -> bool:
 
 
 def read_skill(path: str) -> dict:
+    if not stat.S_ISREG(os.stat(path).st_mode):
+        raise OSError("not a regular file: %s" % path)
     with open(path, "rb") as handle:
-        raw = handle.read()
+        raw = handle.read(MAX_SKILL_BYTES + 1)
+    truncated = len(raw) > MAX_SKILL_BYTES
+    if truncated:
+        raw = raw[:MAX_SKILL_BYTES]
     text = raw.decode("utf-8", errors="replace")
     fields, ok = parse_frontmatter(text)
     dirname = os.path.basename(os.path.dirname(os.path.abspath(path)))
@@ -109,11 +119,12 @@ def read_skill(path: str) -> dict:
         description = _first_paragraph(_body(text))
     when = fields.get("when_to_use") if isinstance(fields.get("when_to_use"), str) else ""
     return {
-        "name": " ".join(name.split()),
+        "name": sanitize(name, NAME_LIMIT) or sanitize(dirname, NAME_LIMIT) or "unnamed",
         "description": description,
         "when_to_use": when,
         "frontmatter_ok": ok,
         "listed": not _truthy(fields.get("disable-model-invocation")),
         "sha256": hashlib.sha256(raw).hexdigest(),
         "bytes": len(raw),
+        "truncated": truncated,
     }

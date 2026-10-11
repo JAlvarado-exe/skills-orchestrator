@@ -12,18 +12,28 @@ MUTATING_EVENTS = ("PreToolUse", "PostToolUse")
 
 
 def collect_hooks(source: str, data: dict):
-    """Flatten a settings.json / hooks.json document into one record per command."""
+    """Flatten a settings.json / hooks.json document into one record per command.
+
+    Third-party documents may have any shape: anything that is not the expected type is skipped.
+    """
     flat = []
     hooks = data.get("hooks", {}) if isinstance(data, dict) else {}
     if not isinstance(hooks, dict):
         return flat
     for event, groups in hooks.items():
-        for group in groups if isinstance(groups, list) else []:
-            matcher = group.get("matcher", "") if isinstance(group, dict) else ""
-            for hook in group.get("hooks", []) if isinstance(group, dict) else []:
+        if not isinstance(groups, list):
+            continue
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            matcher = group.get("matcher", "")
+            inner = group.get("hooks", [])
+            if not isinstance(matcher, str) or not isinstance(inner, list):
+                continue
+            for hook in inner:
                 command = hook.get("command") if isinstance(hook, dict) else None
-                if command:
-                    flat.append({"source": source, "event": event, "matcher": matcher or "", "command": command})
+                if isinstance(command, str) and command:
+                    flat.append({"source": source, "event": event, "matcher": matcher, "command": command})
     return flat
 
 

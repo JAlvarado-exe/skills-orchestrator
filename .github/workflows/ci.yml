@@ -11,14 +11,15 @@ permissions:
 jobs:
   test:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ matrix.python }}
       - name: Unit tests
@@ -29,5 +30,5 @@ jobs:
         run: python scripts/check_english.py
       - name: No machine-specific paths or emails
         run: python scripts/check_privacy.py
-      - name: Self scan covers every SKILL.md
+      - name: Self scan checks that merging lost no SKILL.md
         run: python -m orchestrator scan --root skills::self --check

@@ -6,16 +6,16 @@ members are installed. Patterns are fnmatch globs against registry ids ("source/
 """
 from __future__ import annotations
 
-import json
 from fnmatch import fnmatchcase
+
+from .jsonio import read_json
 
 RELATIONS = ("alternatives", "complementary", "contradictory")
 POLICIES = ("compose", "prefer-by-context", "owner-pin")
 
 
 def load_conflicts(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as handle:
-        return json.load(handle)
+    return read_json(path)
 
 
 def validate_conflicts(data: dict):

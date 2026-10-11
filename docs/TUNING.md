@@ -52,6 +52,6 @@ None of the items below is implemented in v0.1. They are plans, not promises.
 | v0.2 `tune` command | Usage-driven suggestions. It must count **Read** events on registry paths, not only Skill-tool events: a cold skill is read by path, not invoked through a Skill tool, so counting only Skill events would call every cold skill unused. Claude Code already records `skillUsage` and `pluginUsage` in `~/.claude.json` and has `/skill-doctor`; `tune` should build on that data rather than compete with it. It should **propose** profile diffs and never apply them |
 | Optional embedding router | A later, optional layer for paraphrases. Not planned to become a dependency of the core package |
 | More adapters | More platforms, each with evidence. See [ADAPTERS.md](ADAPTERS.md) |
-| Real CI history | The workflow covers Ubuntu, Windows and macOS on Python 3.9 to 3.13. It is written but had not run on GitHub at the time of writing |
+| Real CI history | The workflow covers Ubuntu, Windows and macOS on Python 3.9 to 3.14. It is written but had not run on GitHub at the time of writing |
 
 Not verified: how any host counts listing tokens exactly; how `find` recall behaves on registries or prompt styles other than the author's.

@@ -29,6 +29,27 @@ class PrivacyCheckTests(unittest.TestCase):
         kinds = {kind for kind, _ in check_privacy.scan_text(text)}
         self.assertEqual(kinds, {"windows-user-path", "email", "posix-home-path"})
 
+    def test_flags_escaped_forward_slash_and_msys_windows_paths(self):
+        for text in ("C:\\\\Users\\\\jane\\\\x", "C:/Users/jane/x", "/c/Users/jane/x", "d:\\\\users\\\\jane"):
+            with self.subTest(text=text):
+                self.assertIn("windows-user-path", {kind for kind, _ in check_privacy.scan_text(text)})
+
+    def test_placeholder_forms_pass(self):
+        for text in ("C:\\\\Users\\\\<name>\\\\x", "C:/Users/<you>/x", "/c/Users/{user}/x", "C:/Users/%USERNAME%/x"):
+            with self.subTest(text=text):
+                self.assertEqual([k for k, _ in check_privacy.scan_text(text) if k == "windows-user-path"], [])
+
+    def test_exemption_matches_the_relative_path_not_the_basename(self):
+        leak = "C:" + "\\Users\\jane\\x"
+        with tempfile.TemporaryDirectory() as tmp:
+            write(tmp, "docs/test_repo_checks.py", "value = r'%s'\n" % leak)
+            write(tmp, "other/check_privacy.py", "value = r'%s'\n" % leak)
+            self.assertEqual(len(check_privacy.scan_tree(tmp)), 2)
+        with tempfile.TemporaryDirectory() as tmp:
+            write(tmp, "tests/test_repo_checks.py", "value = r'%s'\n" % leak)
+            write(tmp, "scripts/check_privacy.py", "value = r'%s'\n" % leak)
+            self.assertEqual(check_privacy.scan_tree(tmp), [])
+
     def test_clean_text_passes(self):
         self.assertEqual(check_privacy.scan_text("Use ~/.claude/skills and %USERPROFILE%\\.claude."), [])
 

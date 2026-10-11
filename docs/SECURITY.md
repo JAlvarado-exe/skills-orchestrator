@@ -27,12 +27,13 @@ A skill is text that an agent reads and follows, often next to files that a mach
 
 ## What `vet` scans
 
-`vet PATH` walks a cloned repository (skipping `.git`, `node_modules`, `__pycache__`, `.venv`, `venv`; skipping files over 1,000,000 bytes and binary files) and applies line-based rules to files in three scopes.
+`vet PATH` walks a cloned repository (skipping `.git`, `node_modules`, `__pycache__`, `.venv`, `venv`) and applies rules to files in four scopes. Every file in scope is either scanned or reported: a file over 1,000,000 bytes produces SKIP-01 and a text file with NUL bytes produces SKIP-02; other binary files (images and similar) are skipped silently.
 
 | Scope | Which files |
 | --- | --- |
 | `skill` | Any file inside a folder that contains a `SKILL.md` (including subfolders), and any file under a `commands` folder |
-| `hook` | Files under a `hooks` folder, and any file named `hooks.json` |
+| `agent` | Markdown and text files under an `agents`, `rules` or `prompts` folder (including `.claude/agents`), and the root files `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules` |
+| `hook` | Files under a `hooks` folder, any file named `hooks.json`, the manifests `plugin.json`, `marketplace.json`, `.mcp.json`, `mcp.json` and `server.json`, and scripts (`.sh`, `.js`, `.mjs`, `.cjs`, `.py`, `.ps1`) named in a `command` of a `hooks.json` (resolved under the repository root; a prefix such as `${CLAUDE_PLUGIN_ROOT}/` is stripped) |
 | `install` | `package.json` and files whose name starts with `install`, `setup`, `bootstrap` or `postinstall` |
 
 It is a scan of what an agent loads or a machine runs. It is **not** an audit of a project's application code: a repository's ordinary source files outside these scopes are not read.
@@ -41,23 +42,35 @@ It is a scan of what an agent loads or a machine runs. It is **not** an audit of
 
 | Rule | Severity | Scope | What it flags |
 | --- | --- | --- | --- |
-| INJ-01 | high | skill | Instruction-override or exfiltration phrasing ("ignore previous instructions", "disregard the system ...", "you are now in developer mode", `exfiltrat...`) |
-| INJ-02 | medium | skill | Asks the model to conceal actions from the user |
-| EXEC-01 | high | skill, hook, install | Downloads and executes remote code in one step (`curl`/`wget` piped to a shell, `irm`/`iwr` piped to `iex`, PowerShell `-enc`) |
-| EXEC-02 | medium | skill, hook, install | Dynamic code or shell execution (`eval`, `exec(`, `os.system(`, `shell=True`, `child_process`, `execSync(`, `Invoke-Expression`) |
-| OBF-01 | medium | skill, hook, install | Decodes an obfuscated payload (`b64decode`, `base64 -d`, `atob(`, `FromBase64String`) |
-| CFG-01 | high | skill, hook, install | Writes agent configuration or shell startup files (`settings.json`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.bashrc`, `.zshrc`, `authorized_keys`, `.cursorrules` and similar) |
-| CFG-02 | high | skill, hook, install | Reads or sends credential files (`.ssh`, `id_rsa`, `.aws/credentials`, `.npmrc`, `.netrc`, `.env`, `.git-credentials`) |
-| NET-01 | medium | skill, hook, install | URL pointing at an executable or archive (`.exe`, `.sh`, `.zip`, `.whl`, `.jar` and similar) |
-| UNI-01 | high | skill, hook | Invisible or bidirectional characters |
-| UNI-02 | high | skill, hook | Unicode tag characters (hidden ASCII) |
+| INJ-01 | high | skill, agent | Instruction-override or exfiltration phrasing ("ignore previous instructions", "ignore the instructions above", "forget everything above", "disregard the system ...", "you are now in developer mode", `exfiltrat...`). Matched on the whole file, so a phrase split across lines is found |
+| INJ-02 | medium | skill, agent | Asks the model to conceal actions from the user |
+| EXEC-01 | high | skill, hook, install, agent | Downloads and executes remote code in one step: `curl`/`wget` piped to a shell or interpreter (`sh`, `/bin/bash`, `sudo bash`, `python`, `node`, `perl`, `ruby`, `iex`), `bash <(curl ...)`, `sh -c "$(curl ...)"`, `irm`/`iwr`/`DownloadString` piped to or wrapped in `iex`, `pwsh`/`powershell` with `-e`, `-ec` or `-enc` |
+| EXEC-02 | medium | skill, hook, install, agent | Dynamic code or shell execution, case-insensitive (`eval`, `exec(`, `os.system(`, `os.popen(`, `subprocess.Popen(`, `new Function(`, `shell=True`, `child_process`, `execSync(`, `Invoke-Expression`) |
+| OBF-01 | medium | skill, hook, install, agent | Decodes an obfuscated payload (`b64decode`, `base64 -d`, `atob(`, `FromBase64String`) |
+| CFG-01 | high | skill, hook, install, agent | Writes agent configuration or shell startup files (`settings.json`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.bashrc`, `.zshrc`, `authorized_keys`, `.cursorrules` and similar) |
+| CFG-02 | high | skill, hook, install, agent | Reads or sends credential files (`.ssh`, `id_rsa`, `.aws/credentials`, `.npmrc`, `.netrc`, `.env`, `.git-credentials`) |
+| NET-01 | medium | skill, hook, install, agent | URL pointing at an executable or archive (`.exe`, `.sh`, `.zip`, `.whl`, `.jar` and similar) |
+| UNI-01 | high | skill, hook, agent | Invisible characters: every Unicode format character (category Cf, which includes zero-width characters, bidirectional controls, soft hyphen, word joiners and a mid-file byte order mark) and the characters that render blank (U+034F, U+115F, U+1160, U+17B4, U+17B5, U+2800, U+3164, U+FFA0, variation selectors U+FE00 to U+FE0E). Not flagged: U+200D and U+FE0F (they occur in emoji) and a byte order mark at the very start of a file |
+| UNI-02 | high | skill, hook, agent | Unicode tag characters (U+E0000 to U+E007F, hidden ASCII) and the variation selector supplement (U+E0100 to U+E01EF) |
+| SKIP-01 | high | any file in scope | File not scanned: larger than 1 MB |
+| SKIP-02 | medium | any file in scope | NUL bytes in a text file (`SKILL.md` or a Markdown, text, script, JSON, YAML or TOML file). The file is scanned with the NUL bytes removed |
 | INST-01 | medium | install | `package.json` lifecycle script (`preinstall`, `install`, `postinstall`, `prepare`, `prepublish`, `preuninstall`, `postuninstall`) |
 | INST-02 | medium | install | Installer script (shell, PowerShell, batch, Python or JavaScript): read it before running |
-| HOOK-01 | medium | hook | A hook file that runs automatically on agent events: read the command before enabling |
+| HOOK-01 | medium | hook | A hook file or script named by `hooks.json` that runs automatically on agent events: read the command before enabling |
 | MCP-01 | info | any | A `.mcp.json` or `mcp.json` file defines MCP servers |
 | LIC-01 | low | repository | No license file: reference only, do not redistribute |
 | LIC-02 | low | repository | Restrictive or copyleft license (Elastic, Business Source, SSPL, AGPL, GPL, Commons Clause, Polyform) |
 | LIC-03 | info | repository | License text not recognized: read it |
+
+### How matching works
+
+- A line that ends with a backslash or a pipe is joined with the next one (up to five physical lines); the finding keeps the number of the first line.
+- Every gap inside a pattern is bounded, and lines longer than 4000 characters are scanned in overlapping windows, so a hostile line costs linear time and a payload at the end of a very long line is still found.
+- At most one finding per rule and line. Snippets are sanitized and cut to 140 characters.
+
+### Link containment in `scan`
+
+Cloned repositories passed with `--vendor` (root specs with `source_from: first-child`) are walked without entering or indexing anything whose real path is outside the repository, so a link inside a hostile repository cannot pull other files from your disk into the registry. A root spec can set `contain` to `true` or `false` to override this. Roots you pass with `--root` and the platform folders keep following links, because a personal skills folder legitimately links to other places. When a hidden folder links to a visible one, the visible path is kept, so a shipped skill is not demoted to `internal`.
 
 ### Exit code and output
 
@@ -66,13 +79,13 @@ It is a scan of what an agent loads or a machine runs. It is **not** an audit of
 ## Limits: read this before trusting a report
 
 - **A clean report is not proof of safety.** It means none of these patterns matched on a line.
-- **False positives dominate.** Running `vet` on 13 popular skill repositories produced 79 high findings, almost all of them documentation text or comments that mention the risky patterns (for example a README that explains what `curl | sh` is). A human must read the hits.
-- **Line-based regular expressions are easy to evade.** Splitting a string, using another language or another encoding, or spreading a pattern over several lines defeats them.
+- **False positives dominate.** Running the first rule set of `vet` on 13 popular skill repositories produced 79 high findings (not re-measured after the hardening; the wider rules add hits), almost all of them documentation text or comments that mention the risky patterns (for example a README that explains what `curl | sh` is). A human must read the hits.
+- **Line-based regular expressions are easy to evade.** Splitting a string, using another language or another encoding, or spreading a pattern over more than five lines defeats them.
 - **No semantics.** `vet` does not know whether a hook is dangerous, only that it exists.
 - **No dependency analysis.** Packages that a lifecycle script installs are not inspected.
 - **No sandboxing.** Nothing here prevents a skill from doing harm once the agent follows it; `vet` is an early filter for a human, not a guard.
-- **Size and type limits.** Files over 1,000,000 bytes and binary files are skipped.
-- **Scope.** Application code outside the three scopes is not read.
+- **Size and type limits.** A file in scope over 1,000,000 bytes is not scanned and is reported as SKIP-01 (high). A file with NUL bytes in its first 4096 bytes that is not named like a text file is skipped silently as a binary.
+- **Scope.** Application code outside the four scopes is not read. The `agent` scope matches folder names anywhere in the path but only for Markdown and text files.
 - **License detection is heuristic.** It looks for marker phrases in the first 3000 characters of a root `LICENSE`, `COPYING` or `UNLICENSE` file. It is not legal advice.
 - **Descriptions are shortened, not understood.** Sanitizing removes hidden characters; it does not detect persuasive text. The precedence rule is what keeps a hostile description from outranking the user.
 
