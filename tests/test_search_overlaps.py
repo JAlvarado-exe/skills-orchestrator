@@ -72,6 +72,22 @@ class OverlapTests(unittest.TestCase):
         self.assertIn(frozenset(("x/tdd", "y/test-first")), pairs)
         self.assertEqual(len(pairs), 1)
 
+    def test_tiny_shared_vocabulary_is_not_enough(self):
+        entries = [
+            entry("x/a", "a", "tests first", source="x"),
+            entry("y/b", "b", "tests first", source="y"),
+        ]
+        self.assertEqual(find_overlaps(entries, threshold=0.4)["similar"], [])
+        self.assertEqual(len(find_overlaps(entries, threshold=0.4, min_shared=2)["similar"]), 1)
+
+    def test_overlap_coefficient_catches_short_vs_long_descriptions(self):
+        short = "Write failing tests first then code until they pass, red green refactor"
+        long_text = short + " " + " ".join("extra%d" % i for i in range(40))
+        entries = [entry("x/a", "a", short, source="x"), entry("y/b", "b", long_text, source="y")]
+        found = find_overlaps(entries, threshold=0.4)["similar"]
+        self.assertEqual(len(found), 1)
+        self.assertGreater(found[0]["shared"], 4)
+
     def test_same_name_different_source_is_a_collision(self):
         entries = [
             entry("x/tdd", "tdd", "first", source="x", sha="1"),

@@ -76,14 +76,45 @@ class BuildRegistryTests(unittest.TestCase):
             self.assertEqual(len(reg["entries"]), 1)
             self.assertEqual(len(reg["entries"][0]["paths"]), 2)
 
-    def test_same_name_different_content_gets_distinct_ids(self):
+    def test_same_name_same_source_merges_into_variants(self):
         with tempfile.TemporaryDirectory() as tmp:
-            skill(tmp, "one", "tdd", "version one")
-            skill(tmp, "two", "tdd", "version two")
-            reg = build_registry([{"path": tmp, "source": "repo"}])
-            ids = sorted(e["id"] for e in reg["entries"])
-            self.assertEqual(len(ids), 2)
-            self.assertEqual(len(set(ids)), 2)
+            skill(tmp, "repo/skills/tdd", "tdd", "canonical version")
+            skill(tmp, "repo/.agents/skills/tdd", "tdd", "platform copy with small edits")
+            reg = build_registry([{"path": tmp, "source_from": "first-child"}])
+            self.assertEqual(len(reg["entries"]), 1)
+            entry = reg["entries"][0]
+            self.assertEqual(entry["id"], "repo/tdd")
+            self.assertEqual(entry["description"], "canonical version")
+            self.assertFalse(entry["internal"])
+            self.assertEqual(len(entry["variants"]), 1)
+            self.assertEqual(len(entry["variants"][0]["paths"]), 1)
+
+    def test_same_name_different_source_stays_distinct(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            skill(tmp, "a/skills/tdd", "tdd", "from a")
+            skill(tmp, "b/skills/tdd", "tdd", "from b")
+            reg = build_registry([{"path": tmp, "source_from": "first-child"}])
+            self.assertEqual(sorted(e["id"] for e in reg["entries"]), ["a/tdd", "b/tdd"])
+
+    def test_repo_internal_skills_are_flagged_only_for_vendor_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            skill(tmp, "repo/.claude/skills/dev-helper", "dev-helper", "only for contributors")
+            skill(tmp, "repo/skills/public", "public", "for users")
+            reg = build_registry([{"path": tmp, "source_from": "first-child"}])
+            flags = {e["name"]: e["internal"] for e in reg["entries"]}
+            self.assertTrue(flags["dev-helper"])
+            self.assertFalse(flags["public"])
+            # a hidden folder inside a normal root is a real skill (e.g. Codex keeps built-ins in .system)
+            reg = build_registry([{"path": os.path.join(tmp, "repo", ".claude", "skills"), "source": "mine"}])
+            self.assertFalse(reg["entries"][0]["internal"])
+
+    def test_file_count_includes_variant_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            skill(tmp, "repo/skills/x", "x", "one")
+            skill(tmp, "repo/configs/x", "x", "two")
+            reg = build_registry([{"path": tmp, "source_from": "first-child"}])
+            counted = sum(len(e["paths"]) + sum(len(v["paths"]) for v in e["variants"]) for e in reg["entries"])
+            self.assertEqual(counted, reg["files"])
 
     def test_first_child_source_strategy(self):
         with tempfile.TemporaryDirectory() as tmp:

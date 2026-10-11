@@ -55,7 +55,7 @@ def cmd_scan(args) -> int:
         for spec in specs:
             if os.path.isdir(spec["path"]):
                 files.update(os.path.realpath(p) for p in find_skill_files(spec["path"]))
-        paths = sum(len(e["paths"]) for e in registry["entries"])
+        paths = sum(len(e["paths"]) + sum(len(v["paths"]) for v in e.get("variants", [])) for e in registry["entries"])
         print("files=%d entries=%d paths=%d roots=%d missing=%d" % (len(files), len(registry["entries"]), paths,
                                                                     len(registry["roots"]), len(registry["missing_roots"])))
         return 0 if len(files) == paths else 1
@@ -64,7 +64,7 @@ def cmd_scan(args) -> int:
     with open(out, "w", encoding="utf-8") as handle:
         json.dump(registry, handle, indent=1, ensure_ascii=False)
     print("files=%d entries=%d paths=%d roots=%d missing=%d" % (registry["files"], len(registry["entries"]),
-                                                                sum(len(e["paths"]) for e in registry["entries"]),
+                                                                sum(len(e["paths"]) + sum(len(v["paths"]) for v in e.get("variants", [])) for e in registry["entries"]),
                                                                 len(registry["roots"]), len(registry["missing_roots"])))
     print("registry written to %s" % out)
     return 0
@@ -74,9 +74,10 @@ def cmd_find(args) -> int:
     registry = _load_registry(args.registry or default_registry())
     if registry is None:
         return 2
-    results = rank(registry["entries"], " ".join(args.query), k=args.k)
+    pool = [e for e in registry["entries"] if args.all or not e.get("internal")]
+    results = rank(pool, " ".join(args.query), k=args.k)
     shaped = [{"id": e["id"], "score": round(score, 3), "path": e["path"], "hot": e.get("hot", False),
-               "platforms": e.get("platforms", []), "description_untrusted": sanitize(e.get("description", ""), 300)}
+               "platforms": e.get("platforms", []), "variants": len(e.get("variants", [])), "description_untrusted": sanitize(e.get("description", ""), 300)}
               for score, e in results]
     if args.json:
         print(json.dumps({"query": " ".join(args.query), "notice": UNTRUSTED_NOTICE, "results": shaped}, indent=1, ensure_ascii=False))
@@ -94,16 +95,16 @@ def cmd_overlaps(args) -> int:
     registry = _load_registry(args.registry or default_registry())
     if registry is None:
         return 2
-    result = find_overlaps(registry["entries"], threshold=args.threshold, limit=args.limit)
+    result = find_overlaps(registry["entries"], threshold=args.threshold, limit=args.limit, min_shared=args.min_shared)
     if args.json:
         print(json.dumps(result, indent=1, ensure_ascii=False))
         return 0
     print("name collisions: %d" % len(result["name_collisions"]))
     for item in result["name_collisions"]:
         print("  %s -> %s" % (item["name"], ", ".join(item["ids"])))
-    print("similar pairs (keyword Jaccard >= %.2f): %d" % (args.threshold, len(result["similar"])))
+    print("similar pairs (keyword overlap >= %.2f, >= %d shared): %d" % (args.threshold, args.min_shared, len(result["similar"])))
     for pair in result["similar"]:
-        print("  %.2f  %s  <->  %s" % (pair["score"], pair["a"], pair["b"]))
+        print("  %.2f (%d shared)  %s  <->  %s" % (pair["score"], pair["shared"], pair["a"], pair["b"]))
     return 0
 
 
@@ -181,12 +182,14 @@ def build_parser():
     find.add_argument("query", nargs="+")
     find.add_argument("--registry")
     find.add_argument("-k", type=int, default=5)
+    find.add_argument("--all", action="store_true", help="include skills that only ship inside a repo for its own contributors")
     find.add_argument("--json", action="store_true")
     find.set_defaults(func=cmd_find)
 
     overlaps = sub.add_parser("overlaps", help="list name collisions and near-duplicate skills")
     overlaps.add_argument("--registry")
-    overlaps.add_argument("--threshold", type=float, default=0.35)
+    overlaps.add_argument("--threshold", type=float, default=0.4, help="minimum overlap coefficient")
+    overlaps.add_argument("--min-shared", type=int, default=4, help="minimum shared keywords")
     overlaps.add_argument("--limit", type=int, default=50)
     overlaps.add_argument("--json", action="store_true")
     overlaps.set_defaults(func=cmd_overlaps)
