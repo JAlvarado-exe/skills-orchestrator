@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-11
+
+Guaranteed discovery: the tool can search every skill the user has, in any project and in two languages, and a weak result is never mistaken for "no skill".
+
+### Added
+
+- User config (`~/.skills-orchestrator/config.json`, the `SKILLS_ORCHESTRATOR_CONFIG` variable or `--config FILE`) with the optional keys `registry`, `extra_roots`, `vendor`, `catalogs`, `exclude_paths`, `use_platform_roots`, `use_cwd_project_roots`, `max_age_hours`, `overrides` and `profiles_dir`. A malformed file warns once and is treated as empty. Schema in the README and `docs/ARCHITECTURE.md`.
+- Project roots: the skill folders of the current project (`.claude/skills`, `.agents/skills`, `.github/skills`, `.cursor/skills`, `.gemini/skills`, `.opencode/skills`, `.codex/skills`) in the current directory and each parent up to the first `.git`, as sources named `project:<folder>`.
+- Automatic refresh: `find`, `list`, `overlaps`, `conflicts` and `doctor` rebuild the registry when it is missing or unreadable, older than `max_age_hours`, or built from other roots than the current directory and config give; `--refresh` forces it and `--no-auto-scan` disables it. An existing `--registry FILE` is used as is. The registry now stores `roots_signature` and `built_with`.
+- `list [--names] [--source S] [--profile P] [--all] [--json]`: every non-internal skill with its state (`hot`, `cold` or `tool`), so the whole inventory can be read when search is weak.
+- Spanish support: accent folding on queries and documents, Spanish stopwords, and a `translations` table (about 570 words and phrases) in `orchestrator/data/synonyms.json` whose English equivalents count as the user's own query words.
+- `find --also "phrasing"` (repeatable): extra wordings of the same request, merged by id with the best score.
+- `find` weak-match signal: an `also consider (name match)` list (up to 10 entries whose id contains a query word of four or more characters) and a `WEAK MATCH` line when the best score is below 3.0 or fewer than 3 skills matched; `--json` adds `also_consider` and `coverage` (`weak`, `best_score`, `hint`).
+- 70 new unit tests in `tests/test_discovery.py` (260 in total), including a hermetic fixture of 12 Spanish requests over a 26-skill synthetic corpus (synthetic: it shows the mapping works, not general recall). `tests/__init__.py` points the config and registry environment variables at a folder that is never created, so no test reads the real home directory.
+
+### Changed
+
+- `scan` with no `--root` and no `--vendor` now builds from the config, the platform folders and the current project, and writes to the configured registry. Before, it indexed only the platform folders and silently replaced a registry that also held a cold library or other projects' skills. With explicit roots it behaves as before unless `--config FILE` is passed, and prints a note when that replaces the default registry.
+- Default registry path: `registry` from the config, then `SKILLS_ORCHESTRATOR_REGISTRY`, then `~/.skills-orchestrator/registry.json`.
+- A `--catalog` file that cannot be read is a warning instead of an exception.
+- `find` shows `matched:` for each result (the terms of the request, after translation, that the skill contains) and prints `WEAK MATCH` also when no shown result contains at least two of those terms, so one shared word such as "server" is never read as a match.
+- The orchestrator skill (`SKILL.md`, now under 110 lines) works for requests in any language and any project. The startup `scan` step and the instruction to continue without a skill when the best score is weak are gone. New sections: "Two sources, every time", "Search in English" and "Coverage rule (mandatory)".
+
+### Known limitations
+
+- Spanish support covers the listed words only; other languages are not covered.
+- Skills injected by a host service (not on disk) are still invisible to the registry; the skill tells the agent to check the platform's own list.
+- The weak-match thresholds (3.0 and 3 results) are rough guards chosen on small registries.
+
 ## [0.1.0] - 2026-10-11
 
 First release. Pre-release quality: documented limits are listed in the README.
@@ -57,5 +86,6 @@ Found by an adversarial review before the first release; each item has a regress
 - `est_tokens` is a characters-divided-by-4 estimate.
 - `tune` (usage-driven suggestions) is planned for v0.2 and is not implemented.
 
-[Unreleased]: https://github.com/JAlvarado-exe/skills-orchestrator/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/JAlvarado-exe/skills-orchestrator/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/JAlvarado-exe/skills-orchestrator/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/JAlvarado-exe/skills-orchestrator/releases/tag/v0.1.0

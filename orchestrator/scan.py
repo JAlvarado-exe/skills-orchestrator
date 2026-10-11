@@ -36,19 +36,24 @@ def spec_contain(spec: dict) -> bool:
     return spec.get("source_from") == "first-child"
 
 
-def find_skill_files(root: str, max_depth: int = 12, contain: bool = False):
+def find_skill_files(root: str, max_depth: int = 12, contain: bool = False, exclude=()):
     """Return real SKILL.md paths under root. Follows links, guarded against loops.
 
     With contain=True nothing whose real path lies outside the root is entered or indexed.
+    ``exclude`` lists directory prefixes: a directory whose real path is inside one is never walked.
     """
     found = []
     visited = set()
     root = os.path.abspath(root)
     real_root = os.path.realpath(root)
+    excluded = [os.path.realpath(path) for path in exclude]
     base_depth = root.rstrip(os.sep).count(os.sep)
     for dirpath, dirs, files in os.walk(root, followlinks=True):
         real = os.path.realpath(dirpath)
         if contain and not _inside(real_root, real):
+            dirs[:] = []
+            continue
+        if excluded and any(_inside(prefix, real) for prefix in excluded):
             dirs[:] = []
             continue
         if real in visited:
@@ -94,7 +99,7 @@ def _source_for(root_spec: dict, root: str, skill_dir: str) -> str:
 
 def _is_internal(root_spec: dict, root: str, skill_dir: str) -> bool:
     """Only meaningful for cloned-repo roots (first-child): copies for other tools or dev-only skills."""
-    if root_spec.get("source_from") != "first-child":
+    if root_spec.get("source_from") != "first-child" or root_spec.get("detect_internal") is False:
         return False
     inside = _rel_parts(root, skill_dir)[1:]
     return any(part.startswith(".") or part in INTERNAL_DIRS for part in inside)
@@ -165,7 +170,7 @@ def build_registry(root_specs):
         if not os.path.isdir(root):
             missing.append({"path": root, "platform": spec.get("platform"), "source": spec.get("source")})
             continue
-        paths = find_skill_files(root, contain=spec_contain(spec))
+        paths = find_skill_files(root, contain=spec_contain(spec), exclude=spec.get("exclude", ()))
         root_report.append({"path": root, "platform": spec.get("platform"), "files": len(paths)})
         for path in paths:
             real = os.path.realpath(path)
@@ -246,3 +251,29 @@ def build_registry(root_specs):
         "errors": errors,
         "entries": entries,
     }
+
+
+def roots_signature(specs, catalogs=()):
+    """Fingerprint of what a registry was built from: root paths (this includes the current project's skill
+    folders), catalog files and excluded prefixes. A different cwd or config gives a different signature."""
+    keys = {os.path.normcase(os.path.abspath(spec["path"])) for spec in specs}
+    keys.update("catalog:" + os.path.normcase(os.path.abspath(path)) for path in catalogs)
+    for spec in specs:
+        keys.update("exclude:" + os.path.normcase(os.path.abspath(path)) for path in spec.get("exclude", ()))
+    return sorted(keys)
+
+
+def make_registry(specs, catalogs=(), built_with: str = "explicit"):
+    """build_registry plus catalog tool entries, the roots signature and how the registry was built ("config"|"explicit")."""
+    catalogs = list(dict.fromkeys(catalogs))
+    registry = build_registry(specs)
+    for path in catalogs:
+        try:
+            extra = catalog_entries(path)
+        except (OSError, ValueError, RecursionError) as exc:
+            print("warning: cannot read catalog %s (%s): ignored" % (sanitize(path, 300), sanitize(str(exc), 120)), file=sys.stderr)
+            continue
+        registry["entries"] = sorted(registry["entries"] + extra, key=lambda e: e["id"])
+    registry["roots_signature"] = roots_signature(specs, catalogs)
+    registry["built_with"] = built_with
+    return registry

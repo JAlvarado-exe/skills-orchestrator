@@ -2,7 +2,7 @@
 
 Platform-agnostic registry, search and safety scanner for agent skills (the `SKILL.md` standard). Keep hundreds of skills on disk, show the model only a few, and let it find the right one on demand.
 
-Status: v0.1.0, pre-release. Python 3.9+, standard library only, no network access at runtime.
+Status: v0.1.1, pre-release. Python 3.9+, standard library only, no network access at runtime.
 
 ## The problem
 
@@ -14,8 +14,9 @@ This project takes a different route: keep third-party skills **cold** on disk, 
 
 ## What it does
 
-- **Registry.** `scan` indexes every `SKILL.md` under any set of folders (platform folders, plugin caches, cloned repos) into one JSON file. Identical content is merged; different content under the same source and name becomes `variants`.
-- **Search.** `find` ranks skills with BM25 over name, description and `when_to_use`, with a light stemmer, query-only synonyms and task profiles. Lexical only, no embeddings.
+- **Registry.** `scan` indexes every `SKILL.md` under any set of folders (platform folders, plugin caches, cloned repos) into one JSON file. Identical content is merged; different content under the same source and name becomes `variants`. A user config adds more folders, a cold library and catalogs; the current project's own skill folders are always included.
+- **Search.** `find` ranks skills with BM25 over name, description and `when_to_use`, with a light stemmer, query-only synonyms and task profiles. Lexical only, no embeddings. Accents are ignored and common Spanish words are mapped to English (see [Languages](#languages)).
+- **Guaranteed discovery.** `find`, `list`, `overlaps`, `conflicts` and `doctor` rebuild the registry when it is missing, older than `max_age_hours`, or built for other roots than the current project and config give. `list` prints every skill when search is weak, and `find` prints a `WEAK MATCH` line, never a bare "no matches", when a result cannot prove that no skill fits.
 - **Cold library.** Skills are read by path when needed. They never have to enter the platform's skills folder.
 - **Conflict arbitration.** `conflicts` shows 12 curated clusters of overlapping skills (testing, planning, debugging, review, output compression and more) with a policy for each. See [docs/CONFLICTS.md](docs/CONFLICTS.md).
 - **Health checks.** `doctor` finds broken paths, cross-source duplicate names, over-long descriptions, an estimated listing-budget overflow and colliding output-rewriting hooks.
@@ -37,7 +38,7 @@ Pick one install path.
 
 **3. Directly.** Clone the repository and run `python -m orchestrator <command>` from its root. `pyproject.toml` also defines a `skills-orchestrator` console script; installing it with pip is not covered by CI.
 
-Five commands. The output below is **illustrative**, not captured from a real machine.
+The output below is **illustrative**, not captured from a real machine.
 
 ```text
 $ python -m orchestrator scan
@@ -54,6 +55,13 @@ $ python -m orchestrator find "write the tests first" --profile code -k 2
 3.40  vendor-a/tdd  (skill)
       ~/skills-cold/vendor-a/tdd/SKILL.md
       Red-green-refactor loop for new behavior and bug fixes.
+
+$ python -m orchestrator list --names
+# 40 skills
+vendor-a/spec-writer
+vendor-a/tdd
+vendor-a/test-driven-development
+...
 
 $ python -m orchestrator conflicts --id vendor-a/tdd
 [tdd] Test-driven development (alternatives, policy: prefer-by-context)
@@ -75,22 +83,66 @@ findings: 1 high, 1 medium, 0 low, 0 info
   [MEDIUM] HOOK-01 hooks/hooks.json:1 hook runs automatically on agent events: read the command before enabling
 ```
 
-With no `--root` or `--vendor`, `scan` reads the roots listed in the bundled platform data that exist on your machine. The real `find` prints absolute paths.
+With no `--root` or `--vendor`, `scan` builds the registry from your config (see [Configuration](#configuration)), the platform folders from the bundled platform data that exist on your machine, and the skill folders of the current project. The real `find` prints absolute paths.
 
 ## Commands
 
 | Command | What it does | Main options | Exit codes |
 | --- | --- | --- | --- |
-| `scan` | Build the registry | `--root PATH::SOURCE`, `--vendor DIR`, `--catalog FILE`, `--platforms FILE`, `--out FILE`, `--check` | `--check`: 0 if merging and de-duplication lost none of the `SKILL.md` files the walker found, else 1 |
-| `find QUERY` | Search the registry | `--profile P`, `--profiles-dir D`, `--overrides F`, `-k N`, `--all`, `--json` | 2 if the registry cannot be read |
-| `overlaps` | Name collisions and near-duplicate skills | `--threshold`, `--min-shared`, `--limit`, `--json` | 2 if the registry cannot be read |
-| `conflicts` | Curated conflict clusters and their policy | `--id ID`, `--file F`, `--json` | 0 |
-| `doctor` | Health checks | `--settings F`, `--plugin-hooks DIR`, `--window N`, `--platform P`, `--json` | 1 if any check fails, 2 if the registry cannot be read |
+| `scan` | Build the registry | `--root PATH::SOURCE`, `--vendor DIR`, `--catalog FILE`, `--platforms FILE`, `--config FILE`, `--out FILE`, `--check` | `--check`: 0 if merging and de-duplication lost none of the `SKILL.md` files the walker found, else 1 |
+| `find QUERY` | Search the registry | `--also PHRASING` (repeatable), `--profile P`, `--profiles-dir D`, `--overrides F`, `-k N`, `--all`, `--json`, `--refresh`, `--no-auto-scan`, `--config FILE` | 2 if the registry cannot be read |
+| `list` | Print every skill, sorted by id, as `id  [hot\|cold\|tool]  description` | `--names`, `--source S`, `--profile P`, `--all`, `--json`, plus the `find` registry options | 2 if the registry cannot be read |
+| `overlaps` | Name collisions and near-duplicate skills | `--threshold`, `--min-shared`, `--limit`, `--json`, `--refresh`, `--no-auto-scan`, `--config FILE` | 2 if the registry cannot be read |
+| `conflicts` | Curated conflict clusters and their policy | `--id ID`, `--file F`, `--json`, `--refresh`, `--no-auto-scan`, `--config FILE` | 0 |
+| `doctor` | Health checks | `--settings F`, `--plugin-hooks DIR`, `--window N`, `--platform P`, `--json`, `--refresh`, `--no-auto-scan`, `--config FILE` | 1 if any check fails, 2 if the registry cannot be read |
 | `vet PATH` | Static safety scan of a cloned repository | `--fail-on high\|medium\|low\|info\|none`, `--max-per-rule N`, `--json` | 2 if any finding is at or above `--fail-on` (default `high`) |
 
-The default registry is `~/.skills-orchestrator/registry.json`. Override it with `--registry FILE` or the `SKILLS_ORCHESTRATOR_REGISTRY` environment variable. A file named `overrides.json` next to the registry (tags, note, internal flag per `source/name`) is never overwritten by a scan.
+The registry path is `registry` from the config, else the `SKILLS_ORCHESTRATOR_REGISTRY` environment variable, else `~/.skills-orchestrator/registry.json`. `--registry FILE` uses exactly that file: if it exists it is used as is (only `--refresh` rebuilds it), and if it is missing the command fails as before. Without `--registry`, `find`, `list`, `overlaps`, `conflicts` and `doctor` first rebuild the registry when it is missing or unreadable, older than `max_age_hours`, or built from other roots than the current directory and config give (the registry stores a `roots_signature`), and print `registry rebuilt: N entries` to stderr. `--no-auto-scan` turns the automatic rebuild off. A file named `overrides.json` next to the registry (tags, note, internal flag per `source/name`) is never overwritten by a scan.
+
+`find` prints, below the results, up to 10 skills outside the top results whose id contains a query word of four or more characters (`also consider (name match)`), and the line `WEAK MATCH: ...` when the best score is below 3.0 or fewer than 3 skills matched. With `--json` the same information is in `also_consider` and `coverage` (`weak`, `best_score`, `hint`). A weak result means "search again and read the list", never "no skill exists".
 
 `scan --check` verifies that merging and de-duplication did not lose any discovered `SKILL.md`. It does not prove that discovery found everything: the walk skips excluded folders, stops at depth 12 and, for cloned-repository roots, does not follow links that leave the repository.
+
+## Configuration
+
+An optional JSON file tells the tool where your skills live, so `scan` and the automatic rebuild cover all of them, organized or not, in any project. The default path is `~/.skills-orchestrator/config.json`; override it with the `SKILLS_ORCHESTRATOR_CONFIG` environment variable or `--config FILE`. Every key is optional. `~` and environment variables are expanded, and a relative path is resolved against the config file's folder. A malformed file prints a one-line warning to stderr and is treated as empty.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `"registry"` | environment variable, then `~/.skills-orchestrator/registry.json` | Where the registry is written and read |
+| `"extra_roots"` | `[]` | Folders searched recursively (depth at most 12) for `SKILL.md`. Each item is a path or `{"path", "source_from", "contain"}`; `source_from` defaults to `first-child` (each child folder is a source), `contain` to `false` |
+| `"vendor"` | `[]` | Folders of cloned repositories: each child folder is a source, links that leave a repository are not followed, and contributor-only copies are flagged `internal` |
+| `"catalogs"` | `[]` | `catalog.json` files whose CLI, MCP, hook and gateway items become searchable tool entries |
+| `"exclude_paths"` | `[]` | Directory prefixes, compared by real path, that are never walked under `extra_roots` |
+| `"use_platform_roots"` | `true` | Include the platform folders from `platforms.json` |
+| `"use_cwd_project_roots"` | `true` | Include the current project's skill folders (`.claude/skills`, `.agents/skills`, `.github/skills`, `.cursor/skills`, `.gemini/skills`, `.opencode/skills`, `.codex/skills`) in the current directory and each parent up to and including the first one with a `.git` entry; never the home folder. Source name: `project:<folder name>` |
+| `"max_age_hours"` | `12` | Age after which the registry is rebuilt on next use |
+| `"overrides"` | `overrides.json` next to the registry | The overrides file; ignored when `--registry` is given |
+| `"profiles_dir"` | none | Extra folder searched for profile files after `--profiles-dir` |
+
+```json
+{
+  "registry": "~/.skills-orchestrator/registry.json",
+  "extra_roots": [
+    "~/work",
+    {"path": "~/more-projects", "source_from": "first-child", "contain": false}
+  ],
+  "vendor": ["~/skills-cold"],
+  "catalogs": ["~/skills-cold/catalog.json"],
+  "exclude_paths": ["~/work/old-archive"],
+  "use_platform_roots": true,
+  "use_cwd_project_roots": true,
+  "max_age_hours": 12,
+  "overrides": "~/.skills-orchestrator/overrides.json",
+  "profiles_dir": "~/.skills-orchestrator/profiles"
+}
+```
+
+`scan` with no `--root` and no `--vendor` uses everything above. With explicit `--root` or `--vendor` it indexes only those, as in v0.1.0, unless `--config FILE` is also passed. The registry records `built_with` (`config` or `explicit`) and the `roots_signature` it was built from.
+
+## Languages
+
+Skills are written in English, so English keywords are the reliable way to search, and the orchestrator skill tells the agent to translate the request first. To help with requests in other languages, the tool ignores accents and case, drops common Spanish function words, and maps about 570 Spanish words and phrases (software work and business terms) to English equivalents, which then count as the user's own query words. Words outside that table match nothing. `find --also "another phrasing"` (repeatable) searches the same request in several wordings and keeps the best score per skill. The table lives in `orchestrator/data/synonyms.json`. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## How it works
 
@@ -111,7 +163,7 @@ The default registry is `~/.skills-orchestrator/registry.json`. Override it with
         -> run.py conflicts --id <id> when skills compete
 ```
 
-Ranking, counting and scanning are deterministic code. The model reads the results and applies the chosen skill. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The roots also include the `extra_roots` and `vendor` folders of your config and the current project's skill folders. Ranking, counting and scanning are deterministic code. The model reads the results and applies the chosen skill. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Safety model
 
@@ -146,19 +198,21 @@ The author's own measurements, small samples, lexical ranking. "Hit" means an ac
 | Set | Corpus | Prompts | Result |
 | --- | --- | --- | --- |
 | CI fixture (`tests/test_recall.py`) | 30 synthetic skills | 20 | 20/20; CI asserts at least 80%. Synthetic, so optimistic |
+| Spanish fixture (`tests/test_discovery.py`) | 26 synthetic skills | 12 Spanish requests | 12/12 when written; CI asserts at least 10/12. Synthetic: corpus, requests and word table were written together, so it shows the mapping works, not general recall |
 | Author's registry, tuning set | about 150 shipped skills | 20 | 70% to 85% (14/20 to 17/20) after stemming and synonyms |
 | Author's registry, held-out set | same registry | 12 | 92% (11/12) before and after; no improvement |
 
 The tuning set was used to choose the stemmer and synonyms, so its gain is not evidence of general recall. The held-out set was written beforehand and did not improve. Known misses are paraphrases that share no words with the skill. Details: [docs/TUNING.md](docs/TUNING.md).
 
-Tests: 183 unit tests (stdlib `unittest`). The CI workflow covers Ubuntu, Windows and macOS on Python 3.9 to 3.14; it is written but had not run on GitHub at the time of writing.
+Tests: 260 unit tests (stdlib `unittest`). The CI workflow covers Ubuntu, Windows and macOS on Python 3.9 to 3.14; it is written but had not run on GitHub at the time of writing.
 
 ## Limits
 
 - Search is lexical. A request that shares no words with a skill's name, description or `when_to_use` will miss it.
 - The CI recall fixture is synthetic; the real-registry numbers come from one machine and small samples.
 - Adapters for most platforms are documented-only.
-- Skills injected by a host service (not present on disk) are invisible to `scan`.
+- Skills injected by a host service (not present on disk) are invisible to `scan` and `find`; the orchestrator skill tells the agent to check the platform's own skill list as well.
+- Spanish support is a word table of about 570 entries. Words outside it match nothing, and other languages are not covered; English keywords stay the reliable path.
 - `est_tokens` is characters divided by 4, not a tokenizer measurement.
 - The cold design relies on the model choosing to call `find`.
 - Catalog ratings in [docs/CATALOG.md](docs/CATALOG.md) are the maintainer's subjective judgment.

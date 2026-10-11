@@ -1,6 +1,6 @@
 {
     "version":  1,
-    "note":  "Adapters are data. status: verified-live = the platform was observed listing skills from these roots; present = folder exists on the author machine but loading was not verified; documented-only = taken from a third-party repository setup guide, not tested here. project_roots are relative to a repository and are informational: pass them to scan with --root when you want them indexed.",
+    "note":  "Adapters are data. status: verified-live = the platform was observed listing skills from these roots; present = folder exists on the author machine but loading was not verified; documented-only = taken from a third-party repository setup guide, not tested here. project_roots are relative to a repository and are informational: the current project's skill folders are indexed automatically (config key use_cwd_project_roots).",
     "platforms":  [
                       {
                           "id":  "claude",

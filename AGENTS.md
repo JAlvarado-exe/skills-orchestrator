@@ -42,6 +42,7 @@ State a machine-checkable criterion before you start, for example "the new test 
 | Add or correct a platform | `orchestrator/data/platforms.json` (status must match the evidence) | `cli.py` or `platforms.py` |
 | Add a conflict cluster | `orchestrator/data/conflicts.json` | `conflicts.py` |
 | Add a synonym or phrase | `orchestrator/data/synonyms.json`, plus a test in `tests/test_search_quality.py` | `search.py` |
+| Add a Spanish word or stopword | `translations` or `stopwords` in `orchestrator/data/synonyms.json` (folded, no accents; one entry per line), plus a test in `tests/test_discovery.py` | `search.py` |
 | Add or change a profile | `orchestrator/data/profiles/<name>.json` | `profiles.py` |
 | Add a vet rule | `TEXT_RULES` (or a dedicated check) in `orchestrator/vet.py`, with tests in `tests/test_vet.py` and a row in `docs/SECURITY.md` | The data files |
 | Change the catalog | `catalog/catalog.json`, then `python scripts/render_catalog.py` | `docs/CATALOG.md` by hand (it is generated) |
@@ -50,7 +51,7 @@ When adding a vet rule: include one input that must fire and one near-miss that 
 
 ## Privacy and language
 
-- English only in code, data, docs and commit messages. `scripts/check_english.py` flags Spanish prose.
+- English only in code, data, docs and commit messages. `scripts/check_english.py` flags Spanish prose. The only Spanish allowed is the word lists in `orchestrator/data/synonyms.json` (`translations`, `stopwords`) and test data in `tests/`.
 - Never add personal paths, home directories, email addresses, machine names or tokens. Use `~` for home folders and placeholders such as `<folder>`. `scripts/check_privacy.py` flags Windows and POSIX home paths and email addresses.
 - The generated registry (`registry.json`) contains local paths and is git-ignored. Never commit it, paste it into an issue, or use it as a test fixture.
 - Keep secrets and environment-variable files out of the repository and out of test fixtures.

@@ -58,7 +58,7 @@ The paths for `documented-only` platforms may be wrong or out of date. If you us
 | `roots[].hot` | no | `true` if the platform lists skills from this folder in its menu. `doctor` counts only hot skills against the listing budget |
 | `roots[].source` | no | Source name for every skill in this root (default: the platform id) |
 | `roots[].source_from` | no | `fixed` (default), `first-child` (each child folder is a source) or `plugin-cache` (`plugin:<name>` from the folder layout) |
-| `project_roots` | no | Folders relative to a repository. Informational: pass them to `scan --root` when you want them indexed |
+| `project_roots` | no | Folders relative to a repository. Informational and not read by the code: the current project's `.claude/skills`, `.agents/skills`, `.github/skills`, `.cursor/skills`, `.gemini/skills`, `.opencode/skills` and `.codex/skills` are indexed automatically (config key `use_cwd_project_roots`) |
 | `instructions_file`, `settings_file`, `usage_file`, `lock_file`, `read_by`, `note` | no | Informational. Not used by the scanner |
 
 Roots that do not exist on disk are skipped and counted under `missing_roots` in the registry.
