@@ -1,0 +1,19 @@
+# generated, machine-specific (contains local paths)
+registry.json
+registry/
+.skills-orchestrator/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+
+# local secrets and editor state
+.env
+.env.*
+.vscode/
+.idea/

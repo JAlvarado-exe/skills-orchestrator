@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skills-orchestrator"
+version = "0.1.0"
+description = "Platform-agnostic registry, search and safety scanner for agent skills."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = []
+
+[project.scripts]
+skills-orchestrator = "orchestrator.cli:main"
+
+[tool.setuptools]
+packages = ["orchestrator"]
+
+[tool.setuptools.package-data]
+orchestrator = ["data/*.json"]

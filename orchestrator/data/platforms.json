@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "note": "Adapters are data. status: verified-live = the platform was observed listing skills from these roots; present = folder exists on the author's machine but loading was not verified; documented-only = taken from vendor docs, not tested. Paths for other platforms are added only once confirmed from their documentation.",
+  "platforms": [
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "status": "verified-live",
+      "roots": [
+        {"path": "~/.claude/skills", "hot": true, "source": "claude-user"},
+        {"path": "~/.claude/plugins/cache", "hot": true, "source_from": "plugin-cache"}
+      ],
+      "instructions_file": "~/.claude/CLAUDE.md",
+      "settings_file": "~/.claude/settings.json",
+      "usage_file": "~/.claude.json"
+    },
+    {
+      "id": "agents",
+      "name": "Universal agents folder (npx skills)",
+      "status": "present",
+      "roots": [
+        {"path": "~/.agents/skills", "hot": true, "source": "agents-user"}
+      ],
+      "lock_file": "~/.agents/.skill-lock.json"
+    },
+    {
+      "id": "codex",
+      "name": "OpenAI Codex",
+      "status": "present",
+      "roots": [
+        {"path": "~/.codex/skills", "hot": true, "source": "codex-user"}
+      ],
+      "instructions_file": "~/.codex/AGENTS.md"
+    }
+  ]
+}
