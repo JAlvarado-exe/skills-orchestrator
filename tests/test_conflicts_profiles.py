@@ -159,6 +159,27 @@ class CliExtensionTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("clusters", json.loads(out))
 
+    def test_launcher_works_through_a_link_to_the_skill_folder(self):
+        skill_dir = os.path.join(ROOT, "skills", "skills-orchestrator")
+        with tempfile.TemporaryDirectory() as tmp:
+            link = os.path.join(tmp, "skills-orchestrator")
+            try:
+                os.symlink(skill_dir, link, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                if os.name != "nt":
+                    self.skipTest("symlinks not permitted here")
+                made = subprocess.run(["cmd", "/c", "mklink", "/J", link, skill_dir], capture_output=True)
+                if made.returncode != 0:
+                    self.skipTest("neither symlink nor junction could be created")
+            try:
+                done = subprocess.run([sys.executable, os.path.join(link, "run.py"), "--version"], cwd=tmp, capture_output=True, text=True)
+                self.assertEqual(done.returncode, 0, done.stderr)
+            finally:
+                if os.path.islink(link):
+                    os.unlink(link)
+                elif os.path.exists(link):
+                    os.rmdir(link)
+
     def test_launcher_script_runs_from_any_folder(self):
         launcher = os.path.join(ROOT, "skills", "skills-orchestrator", "run.py")
         with tempfile.TemporaryDirectory() as elsewhere:
