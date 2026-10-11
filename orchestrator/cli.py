@@ -1,4 +1,4 @@
-"""Command line interface: scan, find, list, overlaps, conflicts, doctor, vet."""
+"""Command line interface: scan, find, list, overlaps, conflicts, doctor, vet, hook-prompt."""
 from __future__ import annotations
 
 import argparse
@@ -124,9 +124,9 @@ def _read_quietly(path: str):
     return registry if isinstance(registry, dict) and isinstance(registry.get("entries"), list) else None
 
 
-def _is_current(registry: dict, path: str, config: dict) -> bool:
+def _is_current(registry: dict, path: str, config: dict, cwd: str = None) -> bool:
     """Built from the roots this cwd and config produce, and not older than max_age_hours."""
-    if registry.get("roots_signature") != roots_signature(assemble_roots(config, os.getcwd()), config["catalogs"]):
+    if registry.get("roots_signature") != roots_signature(assemble_roots(config, cwd or os.getcwd()), config["catalogs"]):
         return False
     try:
         age = time.time() - os.path.getmtime(path)
@@ -135,14 +135,15 @@ def _is_current(registry: dict, path: str, config: dict) -> bool:
     return age <= config["max_age_hours"] * 3600
 
 
-def ensure_registry(args, soft: bool = False):
+def ensure_registry(args, soft: bool = False, cwd: str = None):
     """Return (path, registry, config), rebuilding the registry first when it is missing, unreadable, older than
     max_age_hours, built from other roots than this cwd/config give, or when --refresh is passed.
 
     An explicit --registry file that exists is used as is (only --refresh rebuilds it); --no-auto-scan turns
     the automatic rebuild off. registry is None when nothing usable exists (the error is already printed;
-    with soft=True a missing file is silent).
+    with soft=True a missing file is silent). cwd is the project folder; it defaults to the process folder.
     """
+    cwd = cwd or os.getcwd()
     config = load_config(getattr(args, "config", None), explicit=bool(getattr(args, "config", None)))
     explicit = getattr(args, "registry", None)
     path = explicit or registry_path(config)
@@ -153,9 +154,9 @@ def ensure_registry(args, soft: bool = False):
         return path, _load_registry(path), config
     if not refresh:
         registry = _read_quietly(path)
-        if registry is not None and _is_current(registry, path, config):
+        if registry is not None and _is_current(registry, path, config, cwd):
             return path, registry, config
-    registry = make_registry(assemble_roots(config, os.getcwd()), config["catalogs"], "config")
+    registry = make_registry(assemble_roots(config, cwd), config["catalogs"], "config")
     _persist(registry, path)
     print("registry rebuilt: %d entries" % len(registry["entries"]), file=sys.stderr)
     return path, registry, config
@@ -268,6 +269,24 @@ def cmd_find(args) -> int:
             print("also consider (name match): " + ", ".join(also_consider))
         if weak:
             print(WEAK_MATCH_LINE)
+    return 0
+
+
+def _read_stdin() -> str:
+    """All of stdin as UTF-8 text: agents send UTF-8 JSON, whatever the console code page is."""
+    try:
+        raw = getattr(sys.stdin, "buffer", None)
+        return raw.read().decode("utf-8-sig", errors="replace") if raw is not None else sys.stdin.read()
+    except Exception:
+        return ""
+
+
+def cmd_hook_prompt(args) -> int:
+    """Print the context for one UserPromptSubmit payload. Always exits 0: a failing status would block the user's message."""
+    from .hook import run_hook  # imported here because hook imports this module
+    output = run_hook(_read_stdin(), config_path=args.config, registry_path=args.registry, top=args.top)
+    if output:
+        print(output)
     return 0
 
 
@@ -489,6 +508,12 @@ def build_parser():
     vet.add_argument("--max-per-rule", type=int, default=20)
     vet.add_argument("--json", action="store_true")
     vet.set_defaults(func=cmd_vet)
+
+    hook = sub.add_parser("hook-prompt", help="agent hook: read a UserPromptSubmit JSON payload on stdin, print the matching skills as context")
+    hook.add_argument("--config", help="config.json (default: SKILLS_ORCHESTRATOR_CONFIG or ~/.skills-orchestrator/config.json)")
+    hook.add_argument("--registry", help="registry file to search; used as is (default: the configured one, rebuilt when stale)")
+    hook.add_argument("--top", type=int, default=5, help="results to list (default 5, at most 10)")
+    hook.set_defaults(func=cmd_hook_prompt)
     return parser
 
 
@@ -504,7 +529,13 @@ def _utf8_streams() -> None:
 def main(argv=None) -> int:
     _utf8_streams()
     parser = build_parser()
-    args = parser.parse_args(argv)
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit:
+        # a mistyped hook flag must not block the user's message (usage errors exit 2)
+        if (sys.argv[1:] if argv is None else list(argv))[:1] == ["hook-prompt"]:
+            return 0
+        raise
     if not getattr(args, "cmd", None):
         parser.print_help()
         return 2

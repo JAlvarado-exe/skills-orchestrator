@@ -25,6 +25,19 @@ A skill is text that an agent reads and follows, often next to files that a mach
 5. **`vet`**, described below.
 6. **Dual-use gating.** The `reverse` profile and the `reverse-engineering` cluster (policy `owner-pin`) stay off until the user names the target and confirms authorization in the conversation.
 
+## Prompt hook: trust of injected context
+
+`hook-prompt` (see the README) lets an agent run the search on every user message and put the result into the model's context through the host's hook channel. Hosts treat that channel as more trusted than a tool result, so text written by a stranger would carry more weight there than it does in `find` output. The hook is optional and off until the user adds it to their own settings.
+
+| Threat | Mitigation |
+| --- | --- |
+| A hostile description, `when_to_use` text, tag or note is promoted into trusted context | The block never contains them. It holds only sanitized ids, the state word (`hot`, `cold`, `tool`), matched terms (words of the user's own message after translation) and paths, plus fixed text |
+| A hostile id, name or path carries invisible characters, escape codes or line breaks | Every id (120 characters) and path (300) goes through `sanitize`: invisible, bidirectional and control characters are removed, whitespace is flattened to one line and the text is truncated. The header labels the lines as data, not instructions |
+| An id forges a block line such as a fake `WEAK MATCH` or a closing line | Line breaks cannot survive `sanitize`, so every id stays on its own line. A test asserts that each line of the block has one of the known shapes |
+| An id still reads like an instruction | Not fully prevented: the author of a skill chooses its name and folder, and 120 characters can hold a short sentence. The cap and the data label reduce the room; they do not remove it. Vet new skills before they enter the registry |
+| The hook blocks or delays the user's message | It exits 0 for every runtime failure, caps the block at 1,200 characters and writes nothing on stdout but the final JSON. The host's `timeout` setting bounds the run time. A wrong command path (the launcher exits with status 2) is not covered |
+| The hook edits configuration or reaches the network | It does neither: it reads the registry and config, may rewrite the registry through the normal refresh, and appends failures to `hook.log`. It never edits settings files. The code writes no prompt text to the log, only the exception type and a message cut to 200 characters |
+
 ## What `vet` scans
 
 `vet PATH` walks a cloned repository (skipping `.git`, `node_modules`, `__pycache__`, `.venv`, `venv`) and applies rules to files in four scopes. Every file in scope is either scanned or reported: a file over 1,000,000 bytes produces SKIP-01 and a text file with NUL bytes produces SKIP-02; other binary files (images and similar) are skipped silently.

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "skills-orchestrator"
-version = "0.1.1"
+version = "0.1.2"
 description = "Platform-agnostic registry, search and safety scanner for agent skills."
 readme = "README.md"
 requires-python = ">=3.9"

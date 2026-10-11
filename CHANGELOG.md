@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-11
+
+Automatic search: an optional hook runs the skill search on every user message, so finding a skill no longer depends on the model remembering to call `find`.
+
+### Added
+
+- `hook-prompt` command and `orchestrator/hook.py`. It reads a `UserPromptSubmit` JSON payload on stdin, searches the registry with the message and prints `{"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": ...}}`. The block (at most 1,200 characters) lists up to 5 results with state and matched terms, a path for the first 3, name matches, the `WEAK MATCH` line when the `find` weak rule applies, and a fixed line pointing to the Coverage rule. It holds only sanitized ids, paths and matched terms, never descriptions. Optional flags: `--config`, `--registry`, `--top`.
+- Skip rules: messages under 8 characters, slash commands, fewer than two query terms, and the `SKILLS_ORCHESTRATOR_HOOK` switch (`0`, `off` or `false`).
+- The hook uses the payload's `cwd` for the project skill folders, prints nothing on stdout except the final JSON, and always exits 0. Any failure is swallowed and logged as one line to `hook.log` next to the registry (`SKILLS_ORCHESTRATOR_HOOK_LOG` overrides the path).
+- README section "Automatic hook (optional)", an architecture section and a threat table about the trust of hook context in `docs/SECURITY.md`.
+- Orchestrator skill: a paragraph under "Two sources, every time" that tells the agent what a `[skills-orchestrator]` block is and that the Coverage rule still applies.
+- 40 new unit tests in `tests/test_hook.py` (300 in total), including subprocess tests of the exit code and UTF-8 stdin handling.
+
+### Changed
+
+- `ensure_registry` and `_is_current` accept an optional `cwd` (default: the process folder), so the hook can search the project of the payload.
+- `main` returns 0 when `hook-prompt` receives a bad flag (the usage text still goes to stderr), because a non-zero status can block the user's message.
+- `SKILL.md` stays at 110 lines: the "Two sources, every time" paragraph was rewrapped to make room.
+- Version assertions in `tests/test_discovery.py` now expect 0.1.2.
+
+### Known limitations
+
+- The hook cannot see skills a host injects, and the search is lexical like `find`.
+- The output format follows the Claude Code hook format; it was exercised here with synthetic payloads, not inside a live session, and other agents were not tested.
+- If the command path is wrong or the package cannot be imported, `run.py` exits with status 2, which some agents treat as blocking the message.
+
 ## [0.1.1] - 2026-10-11
 
 Guaranteed discovery: the tool can search every skill the user has, in any project and in two languages, and a weak result is never mistaken for "no skill".
@@ -86,6 +112,7 @@ Found by an adversarial review before the first release; each item has a regress
 - `est_tokens` is a characters-divided-by-4 estimate.
 - `tune` (usage-driven suggestions) is planned for v0.2 and is not implemented.
 
-[Unreleased]: https://github.com/JAlvarado-exe/skills-orchestrator/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/JAlvarado-exe/skills-orchestrator/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/JAlvarado-exe/skills-orchestrator/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/JAlvarado-exe/skills-orchestrator/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/JAlvarado-exe/skills-orchestrator/releases/tag/v0.1.0

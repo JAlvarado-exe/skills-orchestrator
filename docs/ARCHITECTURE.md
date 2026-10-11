@@ -1,6 +1,6 @@
 # Architecture
 
-skills-orchestrator is a small, offline Python package (`orchestrator/`) plus one skill (`skills/skills-orchestrator/`) that teaches an agent how to use it. This document describes what each part does and why. Everything here was read from the v0.1.1 source; where behavior is a design choice rather than a measurement, it says so.
+skills-orchestrator is a small, offline Python package (`orchestrator/`) plus one skill (`skills/skills-orchestrator/`) that teaches an agent how to use it. This document describes what each part does and why. Everything here was read from the v0.1.2 source; where behavior is a design choice rather than a measurement, it says so.
 
 ## Design in one paragraph
 
@@ -26,13 +26,16 @@ roots (config extra_roots and vendor, platform folders, plugin caches, this proj
    -> ensure_registry           rebuild first if missing, stale or built for other roots (not with an existing --registry)
    -> find / list / overlaps / conflicts / doctor      read registry (+ overrides.json)
 vet PATH                         reads a repository directly, does not use the registry
+hook-prompt  (agent hook, stdin JSON)   -> build_context: skip rules, ensure_registry(cwd from payload), rank, format a capped block
+                                        -> {"hookSpecificOutput": {"additionalContext": ...}} on stdout, exit 0 always
 ```
 
 ## Modules
 
 | File | Responsibility |
 | --- | --- |
-| `orchestrator/cli.py` | Argument parsing, `ensure_registry` and the seven commands: `scan`, `find`, `list`, `overlaps`, `conflicts`, `doctor`, `vet` |
+| `orchestrator/cli.py` | Argument parsing, `ensure_registry` and the eight commands: `scan`, `find`, `list`, `overlaps`, `conflicts`, `doctor`, `vet`, `hook-prompt` |
+| `orchestrator/hook.py` | The prompt hook: `build_context` (skip rules, search, capped block) and `run_hook` (payload parsing, JSON output, failure log) |
 | `orchestrator/config.py` | Read the user config and assemble the root specs: platform folders, the current project's skill folders, `extra_roots`, `vendor` |
 | `orchestrator/scan.py` | Walk roots, build the registry and its roots signature, estimate listing tokens, turn catalog items into tool entries |
 | `orchestrator/skillfile.py` | Parse `SKILL.md` frontmatter (a YAML subset), hash the file, read `disable-model-invocation` |
@@ -139,6 +142,17 @@ An optional user config makes sure the registry can cover every skill the user h
 
 There are no embeddings. A paraphrase with no shared words will miss; see [TUNING.md](TUNING.md) for measured recall and the roadmap.
 
+## Prompt hook
+
+`orchestrator/hook.py` runs the search without the model. `hook-prompt` reads one JSON payload from stdin (decoded as UTF-8, a byte-order mark tolerated). `run_hook` returns `{"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "<block>"}}`, or an empty string when there is nothing to add. `build_context(prompt, cwd, config_path, registry_path, top)` is the pure part:
+
+1. Skip, with an empty result: `SKILLS_ORCHESTRATOR_HOOK` is `0`, `off` or `false`; the prompt is not a string, is shorter than 8 characters after trimming, or starts with `/`; or the first 2,000 characters have fewer than 2 query terms (`search.query_terms`). The registry is not touched in these cases.
+2. `ensure_registry(args, cwd=<payload cwd>)`: the same rebuild rules as `find`, but the project skill folders and the roots signature come from the payload's folder (when it is an existing absolute directory) instead of the process folder. A registry that cannot be read gives an empty result. The rebuild message goes to stderr; stdout carries only the final JSON.
+3. `search.rank` over the non-internal entries, with the weak rule of `find` (`is_weak`, `is_covered`) applied to the one phrasing, plus up to 5 name matches (`name_matches`).
+4. Format: a fixed header; up to `--top` (default 5, at most 10) lines `N. <id> (<state>) matched: <terms>`; a `read:` line (an `upstream:` line for a tool) for the first 3 results; `Also by name:`; the fixed `WEAK MATCH` line when the result is weak (also when nothing matched); and a fixed closing line that points to the Coverage rule, because the block cannot see skills a host injects. Ids are sanitized to 120 characters and paths to 300. If the block would exceed 1,200 characters, path lines, then results, then name matches are dropped; the header, the weak line and the closing line always stay.
+
+`run_hook` never raises. A malformed payload gives an empty result; any other exception is swallowed and one line (time, exception type, message cut to 200 characters) is appended to `hook.log` next to the registry (`SKILLS_ORCHESTRATOR_HOOK_LOG` sets another path; a log that cannot be written is ignored). `cli.main` returns 0 for `hook-prompt` even after a usage error, because a non-zero status can block the user's message. The block never includes descriptions, `when_to_use` text, tags or notes; the threat model is in [SECURITY.md](SECURITY.md).
+
 ## Conflicts
 
 `conflicts.json` is hand-written because only a human, or a model reading both skills, knows whether two similar skills are rivals or phases of one flow. Code matches member patterns against registry ids and reports which members are installed. `overlaps` is the discovery aid for new clusters: it lists same-name skills and skills whose keyword sets overlap (overlap coefficient, at least 4 shared keywords, threshold 0.4 by default), skipping pairs from the same source. See [CONFLICTS.md](CONFLICTS.md).
@@ -160,7 +174,8 @@ See [SECURITY.md](SECURITY.md) for the rules, scope and limits.
 | Choice | Benefit | Cost |
 | --- | --- | --- |
 | Lexical BM25 instead of embeddings | No dependencies, no model calls, reproducible, explainable | Misses paraphrases with no shared words |
-| Cold library | Platform listing stays small | Relies on the model choosing to call `find` |
+| Cold library | Platform listing stays small | Relies on the model choosing to call `find`, unless the optional prompt hook runs the search on every message |
+| Prompt hook with a fixed-shape block | The search no longer depends on the model; the block holds no third-party prose | About 250 to 350 estimated tokens and one Python start per message; sees only what is on disk |
 | Curated conflicts as data | Honest about judgment; reviewable in a diff | Needs maintainer effort; covers 12 topics only |
 | Estimated tokens | Offline and fast | Approximate; differs from the host's real counting |
 | Registry as one JSON file | Simple, diffable, no service | Contains local paths; rebuilt automatically when stale, which walks every configured root (slow for a very large `extra_roots`) |

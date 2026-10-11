@@ -18,9 +18,10 @@ their skills live. If `python` fails, try `python3` or `py -3`; if Python is not
 
 ## Two sources, every time
 
-Skills reach you in two ways: the registry (through `find`) and the list of skills your platform shows you as
-available. The registry cannot see skills a host injects that are not files on disk, such as browser,
-computer-use, research or document skills. Consider both before concluding anything.
+Skills reach you in two ways: the registry (through `find`) and the list of skills your platform shows you as available. The registry cannot see
+skills a host injects that are not files on disk, such as browser, computer-use, research or document skills. Consider both before concluding anything.
+If a `[skills-orchestrator]` block appears in your context, those are the registry results for that message: read the listed `SKILL.md` files by path.
+The block cannot see host-injected skills, so the Coverage rule below still applies before you say that no skill fits.
 
 ## Search in English
 

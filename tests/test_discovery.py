@@ -715,10 +715,11 @@ class SkillAndReleaseTests(unittest.TestCase):
         self.assertRegex(text, r"\|\s*`list ")
 
     def test_versions_agree(self):
-        self.assertEqual(__version__, "0.1.1")
-        self.assertRegex(self.read("pyproject.toml"), r'(?m)^version = "0\.1\.1"$')
-        self.assertEqual(json.loads(self.read(".claude-plugin", "plugin.json"))["version"], "0.1.1")
-        self.assertTrue("## [0.1.1] - 2026-10-11" in self.read("CHANGELOG.md"), "CHANGELOG lacks the 0.1.1 section")
+        self.assertEqual(__version__, "0.1.2")
+        self.assertRegex(self.read("pyproject.toml"), r'(?m)^version = "0\.1\.2"$')
+        self.assertEqual(json.loads(self.read(".claude-plugin", "plugin.json"))["version"], "0.1.2")
+        for released in ("0.1.1", "0.1.2"):
+            self.assertTrue("## [%s] - 2026-10-11" % released in self.read("CHANGELOG.md"), "CHANGELOG lacks the %s section" % released)
 
     def test_docs_describe_every_config_key(self):
         for doc in (("README.md",), ("docs", "ARCHITECTURE.md")):
