@@ -1,0 +1,18 @@
+{
+    "$schema":  "https://anthropic.com/claude-code/marketplace.schema.json",
+    "name":  "skills-orchestrator",
+    "description":  "Skills Orchestrator marketplace",
+    "owner":  {
+                  "name":  "JAlvarado-exe",
+                  "url":  "https://github.com/JAlvarado-exe"
+              },
+    "plugins":  [
+                    {
+                        "name":  "skills-orchestrator",
+                        "description":  "Find the right skill among many without loading them all; arbitrate conflicts; vet new skills.",
+                        "source":  "./",
+                        "category":  "productivity",
+                        "homepage":  "https://github.com/JAlvarado-exe/skills-orchestrator"
+                    }
+                ]
+}

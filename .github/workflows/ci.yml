@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit tests
+        run: python -m unittest discover -s tests -t .
+      - name: Catalog is in sync
+        run: python scripts/render_catalog.py --check
+      - name: English only
+        run: python scripts/check_english.py
+      - name: No machine-specific paths or emails
+        run: python scripts/check_privacy.py
+      - name: Self scan covers every SKILL.md
+        run: python -m orchestrator scan --root skills::self --check

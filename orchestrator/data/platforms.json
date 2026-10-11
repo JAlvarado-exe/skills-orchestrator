@@ -1,36 +1,132 @@
 {
-  "version": 1,
-  "note": "Adapters are data. status: verified-live = the platform was observed listing skills from these roots; present = folder exists on the author's machine but loading was not verified; documented-only = taken from vendor docs, not tested. Paths for other platforms are added only once confirmed from their documentation.",
-  "platforms": [
-    {
-      "id": "claude",
-      "name": "Claude Code",
-      "status": "verified-live",
-      "roots": [
-        {"path": "~/.claude/skills", "hot": true, "source": "claude-user"},
-        {"path": "~/.claude/plugins/cache", "hot": true, "source_from": "plugin-cache"}
-      ],
-      "instructions_file": "~/.claude/CLAUDE.md",
-      "settings_file": "~/.claude/settings.json",
-      "usage_file": "~/.claude.json"
-    },
-    {
-      "id": "agents",
-      "name": "Universal agents folder (npx skills)",
-      "status": "present",
-      "roots": [
-        {"path": "~/.agents/skills", "hot": true, "source": "agents-user"}
-      ],
-      "lock_file": "~/.agents/.skill-lock.json"
-    },
-    {
-      "id": "codex",
-      "name": "OpenAI Codex",
-      "status": "present",
-      "roots": [
-        {"path": "~/.codex/skills", "hot": true, "source": "codex-user"}
-      ],
-      "instructions_file": "~/.codex/AGENTS.md"
-    }
-  ]
+    "version":  1,
+    "note":  "Adapters are data. status: verified-live = the platform was observed listing skills from these roots; present = folder exists on the author machine but loading was not verified; documented-only = taken from a third-party repository setup guide, not tested here. project_roots are relative to a repository and are informational: pass them to scan with --root when you want them indexed.",
+    "platforms":  [
+                      {
+                          "id":  "claude",
+                          "name":  "Claude Code",
+                          "status":  "verified-live",
+                          "roots":  [
+                                        {
+                                            "path":  "~/.claude/skills",
+                                            "hot":  true,
+                                            "source":  "claude-user"
+                                        },
+                                        {
+                                            "path":  "~/.claude/plugins/cache",
+                                            "hot":  true,
+                                            "source_from":  "plugin-cache"
+                                        }
+                                    ],
+                          "project_roots":  [
+                                                ".claude/skills"
+                                            ],
+                          "instructions_file":  "~/.claude/CLAUDE.md",
+                          "settings_file":  "~/.claude/settings.json",
+                          "usage_file":  "~/.claude.json"
+                      },
+                      {
+                          "id":  "agents",
+                          "name":  "Universal agents folder (used by the npx skills CLI)",
+                          "status":  "present",
+                          "roots":  [
+                                        {
+                                            "path":  "~/.agents/skills",
+                                            "hot":  true,
+                                            "source":  "agents-user"
+                                        }
+                                    ],
+                          "project_roots":  [
+                                                ".agents/skills"
+                                            ],
+                          "lock_file":  "~/.agents/.skill-lock.json",
+                          "read_by":  "documented by setup guides for Copilot, Gemini CLI, OpenCode and Command Code"
+                      },
+                      {
+                          "id":  "codex",
+                          "name":  "OpenAI Codex",
+                          "status":  "present",
+                          "roots":  [
+                                        {
+                                            "path":  "~/.codex/skills",
+                                            "hot":  true,
+                                            "source":  "codex-user"
+                                        }
+                                    ],
+                          "instructions_file":  "~/.codex/AGENTS.md",
+                          "note":  "Codex starts from each skill name and description and loads the rest on demand."
+                      },
+                      {
+                          "id":  "copilot",
+                          "name":  "GitHub Copilot",
+                          "status":  "documented-only",
+                          "roots":  [
+
+                                    ],
+                          "project_roots":  [
+                                                ".github/skills",
+                                                ".agents/skills",
+                                                ".claude/skills"
+                                            ],
+                          "note":  "User-level folder is ~/.agents/skills (see the agents entry)."
+                      },
+                      {
+                          "id":  "cursor",
+                          "name":  "Cursor",
+                          "status":  "documented-only",
+                          "roots":  [
+                                        {
+                                            "path":  "~/.cursor/skills",
+                                            "hot":  true,
+                                            "source":  "cursor-user"
+                                        }
+                                    ],
+                          "project_roots":  [
+                                                ".cursor/skills"
+                                            ]
+                      },
+                      {
+                          "id":  "gemini",
+                          "name":  "Gemini CLI",
+                          "status":  "documented-only",
+                          "roots":  [
+                                        {
+                                            "path":  "~/.gemini/skills",
+                                            "hot":  true,
+                                            "source":  "gemini-user"
+                                        }
+                                    ],
+                          "project_roots":  [
+                                                ".gemini/skills",
+                                                ".agents/skills"
+                                            ]
+                      },
+                      {
+                          "id":  "opencode",
+                          "name":  "OpenCode",
+                          "status":  "documented-only",
+                          "roots":  [
+
+                                    ],
+                          "project_roots":  [
+                                                ".opencode/skills",
+                                                ".agents/skills",
+                                                ".claude/skills"
+                                            ],
+                          "note":  "Also reads ~/.agents/skills and ~/.claude/skills."
+                      },
+                      {
+                          "id":  "windsurf",
+                          "name":  "Windsurf",
+                          "status":  "documented-only",
+                          "roots":  [
+
+                                    ],
+                          "project_roots":  [
+
+                                            ],
+                          "instructions_file":  ".windsurfrules",
+                          "note":  "No skills folder: only a rules file. Paste or reference skills from there."
+                      }
+                  ]
 }
