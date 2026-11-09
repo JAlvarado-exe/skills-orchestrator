@@ -1,12 +1,18 @@
 {
     "name":  "business",
-    "description":  "Testing a business idea, pricing, positioning and sales material.",
+    "description":  "Testing a business idea, pricing, positioning, marketing, outbound drafts with owner approval, and sales material.",
     "include":  [
-                    "*/founder-*",
-                    "*/pricing",
-                    "*/cold-email",
-                    "*/copywriting",
-                    "*/sales-enablement",
-                    "*/competitive-brief"
-                ]
+        "*/founder-*",
+        "*/pricing",
+        "*/cold-email",
+        "*/copywriting",
+        "*/sales-enablement",
+        "*/competitive-brief",
+        "marketingskills/*",
+        "*/operator-approval-loop",
+        "*/counterparty-channel-discipline",
+        "*/ig-*",
+        "*/competitor-analysis",
+        "*/competitive-landscape"
+    ]
 }
