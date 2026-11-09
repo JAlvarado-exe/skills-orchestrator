@@ -82,7 +82,7 @@ TEXT_RULES = [
 WHOLE_TEXT_RULES = frozenset({"INJ-01"})  # matched on the whole file so a phrase may span lines
 LIFECYCLE = ("preinstall", "install", "postinstall", "prepare", "prepublish", "preuninstall", "postuninstall")
 RESTRICTIVE = ("elastic license", "business source license", "server side public", "affero", "gnu general public",
-               "commons clause", "polyform")
+               "commons clause", "polyform", "functional source license", "fair source")
 PERMISSIVE = ("mit license", "apache license", "bsd", "isc license", "unlicense", "cc0", "permission is hereby granted")
 INSTALLER_EXT = (".sh", ".bash", ".ps1", ".bat", ".cmd", ".py", ".js", ".mjs", ".cjs")
 CODE_EXT = (".sh", ".bash", ".ps1", ".bat", ".cmd", ".py", ".js", ".mjs", ".cjs", ".ts", ".json", ".yaml", ".yml", ".toml")

@@ -72,7 +72,7 @@ It is a scan of what an agent loads or a machine runs. It is **not** an audit of
 | HOOK-01 | medium | hook | A hook file or script named by `hooks.json` that runs automatically on agent events: read the command before enabling |
 | MCP-01 | info | any | A `.mcp.json` or `mcp.json` file defines MCP servers |
 | LIC-01 | low | repository | No license file: reference only, do not redistribute |
-| LIC-02 | low | repository | Restrictive or copyleft license (Elastic, Business Source, SSPL, AGPL, GPL, Commons Clause, Polyform) |
+| LIC-02 | low | repository | Restrictive or copyleft license (Elastic, Business Source, Functional Source, SSPL, AGPL, GPL, Commons Clause, Polyform) |
 | LIC-03 | info | repository | License text not recognized: read it |
 
 ### How matching works
