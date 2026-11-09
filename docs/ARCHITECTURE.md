@@ -58,7 +58,7 @@ Judgment that a person edits lives in JSON under `orchestrator/data/`. Code only
 | File | Holds | Edited by |
 | --- | --- | --- |
 | `orchestrator/data/platforms.json` | Where each platform keeps skills, status, `hot` flags | Maintainers, from documentation or observation |
-| `orchestrator/data/conflicts.json` | 12 hand-written conflict clusters | Maintainers |
+| `orchestrator/data/conflicts.json` | 20 hand-written conflict clusters | Maintainers |
 | `orchestrator/data/synonyms.json` | Query-expansion groups and phrases, Spanish stopwords, and the Spanish-to-English `translations` table | Maintainers, from missed prompts |
 | `orchestrator/data/profiles/*.json` | `core`, `code`, `docs`, `research`, `business`, `reverse` id filters | Maintainers; users can add their own with `--profiles-dir` |
 | `config.json` (user-owned) | Where the user's skills live; see Configuration. Never written by the tool | The user |
@@ -176,7 +176,7 @@ See [SECURITY.md](SECURITY.md) for the rules, scope and limits.
 | Lexical BM25 instead of embeddings | No dependencies, no model calls, reproducible, explainable | Misses paraphrases with no shared words |
 | Cold library | Platform listing stays small | Relies on the model choosing to call `find`, unless the optional prompt hook runs the search on every message |
 | Prompt hook with a fixed-shape block | The search no longer depends on the model; the block holds no third-party prose | About 250 to 350 estimated tokens and one Python start per message; sees only what is on disk |
-| Curated conflicts as data | Honest about judgment; reviewable in a diff | Needs maintainer effort; covers 12 topics only |
+| Curated conflicts as data | Honest about judgment; reviewable in a diff | Needs maintainer effort; covers 20 topics only |
 | Estimated tokens | Offline and fast | Approximate; differs from the host's real counting |
 | Registry as one JSON file | Simple, diffable, no service | Contains local paths; rebuilt automatically when stale, which walks every configured root (slow for a very large `extra_roots`) |
 | Index only what is on disk | Simple, deterministic scan | Skills injected by a host service are invisible to `scan`; the orchestrator skill tells the agent to check the platform's own list too |

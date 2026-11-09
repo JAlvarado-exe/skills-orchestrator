@@ -70,11 +70,12 @@
     },
     {
       "id": "web-access",
-      "topic": "Reading or acting on websites",
+      "topic": "Reading or acting on websites and desktop apps",
       "relation": "alternatives",
-      "members": ["*/moli-*", "*/api-anything", "*/deep-research", "*/built-in-browser", "*/chrome-browser"],
+      "members": ["*/moli-*", "*/api-anything", "*/deep-research", "*/built-in-browser", "*/chrome-browser", "*/scrapling-official", "*/browser-use", "*/remote-browser", "*/chrome-devtools", "*/chrome-devtools-cli", "*/agent-browser", "*/agent-desktop*"],
+      "tools": ["Scrapling (scraping library)", "chrome-devtools-mcp (browser debugging MCP server)", "agent-desktop (native desktop control)"],
       "policy": "prefer-by-context",
-      "guidance": "Reading public pages: a headless fetcher. Interactive or logged-in work: the platform's browser tool. Repeated calls to one site you are allowed to automate: a saved API operation. Multi-source research: a research skill."
+      "guidance": "Reading public pages: a headless fetcher, or Scrapling when the page needs many fetches, JavaScript rendering or structured extraction to markdown. Interactive or logged-in work: the platform's browser tool, then a browser-automation skill. Debugging a page you own: chrome-devtools. Native desktop apps: computer use or agent-desktop. Repeated calls to one site you are allowed to automate: a saved API operation. Multi-source research: a research skill. Use one tool per task. Evading bot detection (stealth fingerprints, challenge solving, proxy rotation to dodge blocks) is prohibited: stay on pages the owner may read, respect robots.txt and rate limits, and stop when a site refuses automated access."
     },
     {
       "id": "prose-style",
@@ -100,6 +101,74 @@
       "tools": ["reverse-api-engineer (traffic capture to API client)"],
       "policy": "owner-pin",
       "guidance": "Dual use. Only for software or sites you own or are authorized in writing to analyze. Off unless the user names the target and confirms authorization in the conversation."
+    },
+    {
+      "id": "agent-memory",
+      "topic": "Keeping durable memory for agents across sessions",
+      "relation": "alternatives",
+      "members": ["*/para-memory-files", "*/egm-*", "*/wiki-ingest", "*/wiki-query", "*/wiki-lint", "*/LLM Wiki Maintainer"],
+      "tools": ["platform auto-memory (built into the agent)", "codebase-memory-mcp (code index, not notes)"],
+      "policy": "prefer-by-context",
+      "guidance": "Pick one durable store per project and write to it only. PARA files suit personal or project notes, the elephant-goldfish model suits per-folder README context for a repository, the wiki skills suit a curated document wiki. Never store secrets or personal data of third parties in memory. Check what the platform memory already holds before adding a second store."
+    },
+    {
+      "id": "voice-audio",
+      "topic": "Speech to text and text to speech",
+      "relation": "alternatives",
+      "members": ["*/earshot", "*/real-sound", "*/voicestudio", "*/voicestudio-maintainer"],
+      "tools": ["faster-whisper (local speech to text)", "kokoro-onnx (local text to speech)", "OpenVoice (voice cloning)"],
+      "policy": "prefer-by-context",
+      "guidance": "Direction decides: audio in, transcript out uses a speech-to-text tool; text in, audio out uses a text-to-speech tool. Prefer local, offline tools for private audio so recordings do not leave the machine. Check each tool's license before commercial use, since some voice weights are non-commercial. Cloning a real person's voice needs that person's consent; never use a cloned voice for calls, impersonation or messages sent as someone else."
+    },
+    {
+      "id": "social-publishing",
+      "topic": "Drafting, scheduling and posting on social networks",
+      "relation": "complementary",
+      "members": ["*/ig-*", "*/social", "*/content-calendar", "*/operator-approval-loop"],
+      "tools": ["postiz-app (self-hosted social scheduler)"],
+      "policy": "owner-pin",
+      "guidance": "Drafting and planning are free; publishing is not. Nothing is posted, scheduled, replied to, commented on or sent as a direct message until the owner has seen the exact final text and said yes in the conversation. One approval covers one item. Pair the drafting skill with an approval step, and never connect a scheduler or account credentials without the owner turning it on."
+    },
+    {
+      "id": "anti-slop-writing",
+      "topic": "Avoiding generic AI output in prose, design and code",
+      "relation": "complementary",
+      "members": ["*/antislop*", "*/humanizer"],
+      "policy": "compose",
+      "guidance": "Different phases: the anti-slop rules constrain a draft while it is being produced (copy, UI, layout, code), the humanizer rewrites finished prose that still reads machine-made. Use the variant that matches the artifact (copywriting, ui, code, layout) and finish with the humanizer on outbound text. Do not apply either to chat replies, and never let a style rule change facts, numbers or claims."
+    },
+    {
+      "id": "marketing-skills",
+      "topic": "Marketing, copy, SEO and growth skills",
+      "relation": "alternatives",
+      "members": ["marketingskills/*", "claude-user/cold-email", "claude-user/copywriting", "claude-user/pricing", "claude-user/sales-enablement"],
+      "policy": "prefer-by-context",
+      "guidance": "The marketingskills pack shares four names with the installed copies (cold-email, copywriting, pricing, sales-enablement): use the installed claude-user copy for those and the pack for everything else. Use one skill per task, brief it with the product, audience and constraints, and run outbound text through the humanizer before it leaves the conversation."
+    },
+    {
+      "id": "output-approval",
+      "topic": "Approving drafts and outbound messages before they leave",
+      "relation": "complementary",
+      "members": ["*/operator-approval-loop", "*/counterparty-channel-discipline", "*/santa-method"],
+      "policy": "owner-pin",
+      "guidance": "Anything that reaches another person or system on the owner's behalf (email, chat, post, filing, order) is a draft until the owner approves that exact text. Optionally verify the draft first with two independent reviewers (santa-method), then show it with its destination and wait for an explicit yes; edits void the approval. Keep one policy per channel about who may speak and what stays silent. Off unless the owner turns it on, and then it only adds gates, never removes them."
+    },
+    {
+      "id": "agent-security",
+      "topic": "Securing agents, tools and MCP servers",
+      "relation": "complementary",
+      "members": ["*/agent-security-hardening", "*/mcp-dependency-review", "*/security-and-hardening", "*/claude-security", "*/production-audit"],
+      "policy": "compose",
+      "guidance": "Layers, not rivals: review each MCP server and dependency before registering it, harden the agent's permissions and secrets handling, review application code for vulnerabilities, and audit the running system last. A general review does not replace a dedicated security review. Registering an MCP server or changing permissions is an owner step."
+    },
+    {
+      "id": "trading",
+      "topic": "Market analysis and trading tools",
+      "relation": "complementary",
+      "members": ["*/trader-*"],
+      "tools": ["broker account or API (owner credentials, owner-run)"],
+      "policy": "owner-pin",
+      "guidance": "Analysis, scanning and paper trading only. The agent never places, confirms or routes a real order and gives no personalized investment advice; the owner executes any trade. Off unless the owner turns it on for the session."
     }
   ]
 }
