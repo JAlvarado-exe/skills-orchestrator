@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Eight conflict clusters (agent memory, voice, social publishing, anti-slop writing, marketing, output approval, agent security, trading) and a broader `web-access` cluster that bans bot-detection evasion. Social publishing, output approval and trading are owner-pinned.
+- Spanish and English vocabulary for voice, transcription, scraping, social media, drafts and approvals, domains and brand names, trading and anti-slop; cold-skill recall tests.
+- Extended `business`, `docs` and `research` profiles.
+- `vet` recognizes the Functional Source License as a restrictive license (LIC-02).
+
 ## [0.1.2] - 2026-10-11
 
 Automatic search: an optional hook runs the skill search on every user message, so finding a skill no longer depends on the model remembering to call `find`.
