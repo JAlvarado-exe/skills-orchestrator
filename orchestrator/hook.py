@@ -88,32 +88,49 @@ def _assemble(units, also, weak: bool) -> str:
     return "\n".join([HEADER] + body + tail)
 
 
-def build_context(prompt, cwd, config_path=None, registry_path=None, top=DEFAULT_TOP) -> str:
-    """The context block for one message, or "" when nothing should be injected.
+def select(prompt, cwd, config_path=None, registry_path=None, top=DEFAULT_TOP, loaded=None):
+    """The hook's decision for one message as data: None when the message is skipped, else a dict with the
+    shown ``results`` [(score, entry)], ``weak``, the name matches ``also`` and the searched ``text``.
 
-    Same search and weak-match rules as ``find``, with the project folders taken from ``cwd`` instead of the
-    process folder. Nothing is written to stdout; a registry rebuild reports on stderr.
+    ``loaded`` is an optional (path, registry, config) triple so evaluation can search a registry built in memory.
     """
     if _disabled() or not isinstance(prompt, str):
-        return ""
+        return None
     text = prompt.strip()
     if len(text) < MIN_PROMPT_CHARS or text.startswith("/"):
-        return ""
+        return None
     text = text[:MAX_PROMPT_CHARS]
     if len(query_terms(text)[0]) < MIN_QUERY_TERMS:
-        return ""
+        return None
     args = argparse.Namespace(config=config_path, registry=registry_path, overrides=None, refresh=False, no_auto_scan=False)
-    path, registry, config = ensure_registry(args, cwd=_project_dir(cwd))
+    path, registry, config = loaded or ensure_registry(args, cwd=_project_dir(cwd))
     if registry is None:
-        return ""
+        return None
     pool = [e for e in _entries(args, path, registry, config) if not e.get("internal")]
     ranked = rank(pool, text, k=len(pool))
     results = ranked[: max(1, min(int(top), MAX_TOP))]
     weak = is_weak(ranked[0][0] if ranked else 0.0, len(ranked)) or not any(is_covered(e, [text]) for _score, e in results)
     shown = {e["id"] for _score, e in results}
     also = [sanitize(ident, ID_LIMIT) for ident in name_matches(pool, [text], shown, limit=ALSO_LIMIT)]
-    units = [_unit(number, entry, text) for number, (_score, entry) in enumerate(results, 1)]
-    return _assemble(units, also, weak)
+    return {"text": text, "results": results, "weak": weak, "also": also}
+
+
+def format_context(selection) -> str:
+    """The context block for a selection, or "" when nothing should be injected."""
+    if not selection:
+        return ""
+    text = selection["text"]
+    units = [_unit(number, entry, text) for number, (_score, entry) in enumerate(selection["results"], 1)]
+    return _assemble(units, selection["also"], selection["weak"])
+
+
+def build_context(prompt, cwd, config_path=None, registry_path=None, top=DEFAULT_TOP) -> str:
+    """The context block for one message, or "" when nothing should be injected.
+
+    Same search and weak-match rules as ``find``, with the project folders taken from ``cwd`` instead of the
+    process folder. Nothing is written to stdout; a registry rebuild reports on stderr.
+    """
+    return format_context(select(prompt, cwd, config_path, registry_path, top))
 
 
 def _log_failure(exc: Exception, config_path, registry_path) -> None:

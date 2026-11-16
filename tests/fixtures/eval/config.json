@@ -1,0 +1,23 @@
+{
+ "extra_roots": [
+  {
+   "path": "skills/user",
+   "source_from": "first-child"
+  }
+ ],
+ "vendor": [
+  "skills/vendor"
+ ],
+ "catalogs": [
+  "catalog.json"
+ ],
+ "use_platform_roots": false,
+ "use_cwd_project_roots": false,
+ "blocked": [
+  "router-hub",
+  "catalog/model-gateway"
+ ],
+ "hook_skip_tags": [
+  "cross-session-message"
+ ]
+}

@@ -290,6 +290,38 @@ def cmd_hook_prompt(args) -> int:
     return 0
 
 
+def _hook_run(payload, loaded):
+    """(shown ids, printed block) of the hook for one payload, against an already loaded registry."""
+    from .hook import format_context, select
+    selection = select(payload.get("prompt"), payload.get("cwd"), loaded=loaded)
+    printed = format_context(selection)
+    return ([e["id"] for _score, e in selection["results"]] if selection else []), printed
+
+
+def cmd_eval(args) -> int:
+    from .evaluate import evaluate, load_cases, load_target
+    try:
+        cases = load_cases(args.file)
+        loaded = load_target(args.config, args.registry)
+    except (OSError, ValueError, RecursionError) as exc:
+        print("error: cannot run eval (%s)" % sanitize(str(exc), 200), file=sys.stderr)
+        return 2
+    report = evaluate(cases, loaded, _hook_run)
+    if args.json:
+        print(json.dumps(report, indent=1, ensure_ascii=False))
+        return 0
+    for row in report["rows"]:
+        status = ("silent ok" if row["silent"] else "NOT SILENT") if row["silent_expected"] else (
+            "p@3=%.2f" % row["precision_at_3"])
+        print("%-28s %-11s %s%s" % (sanitize(row["id"], 28), status, ", ".join(sanitize(i, ID_LIMIT) for i in row["shown"]),
+                                    ("  FORBIDDEN: " + ", ".join(row["forbidden_shown"])) if row["forbidden_shown"] else ""))
+    summary = report["summary"]
+    print("precision@3: %.3f  hit@3: %.3f  silent: %d/%d  silenced wrongly: %d  forbidden shown: %d  cases: %d" % (
+        summary["precision_at_3"], summary["hit_at_3"], summary["silent_ok"], summary["silent_cases"],
+        summary["silenced_wrongly"], summary["forbidden_shown"], summary["cases"]))
+    return 0
+
+
 def _state(entry: dict) -> str:
     return "tool" if entry.get("kind") == "tool" else "hot" if entry.get("hot") else "cold"
 
@@ -508,6 +540,13 @@ def build_parser():
     vet.add_argument("--max-per-rule", type=int, default=20)
     vet.add_argument("--json", action="store_true")
     vet.set_defaults(func=cmd_vet)
+
+    evaluation = sub.add_parser("eval", help="run a JSON file of cases through the hook selection and print precision at 3 and silence")
+    evaluation.add_argument("file")
+    evaluation.add_argument("--config", help="config.json the registry is built from in memory (default: the user's config)")
+    evaluation.add_argument("--registry", help="evaluate this registry file instead of building one")
+    evaluation.add_argument("--json", action="store_true")
+    evaluation.set_defaults(func=cmd_eval)
 
     hook = sub.add_parser("hook-prompt", help="agent hook: read a UserPromptSubmit JSON payload on stdin, print the matching skills as context")
     hook.add_argument("--config", help="config.json (default: SKILLS_ORCHESTRATOR_CONFIG or ~/.skills-orchestrator/config.json)")
