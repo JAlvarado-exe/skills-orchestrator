@@ -63,7 +63,7 @@ SEC_01 = re.compile(
     r"|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"
     r"|\bxox[abposr]-[A-Za-z0-9-]{10,}"
     r"|\bAIza[0-9A-Za-z_-]{35}\b")
-REDACTED_RULES = frozenset({"SEC-01"})  # the snippet never repeats the matched value
+REDACTED = "[REDACTED]"  # no snippet of any rule repeats a value SEC_01 matches
 
 _ALL = ("skill", "hook", "install", "agent")
 # (rule id, severity, scopes, regex, message). Every gap is bounded so a hostile line cannot cost more than linear time.
@@ -247,8 +247,14 @@ def _chunks(line: str):
 
 
 def _window(text: str, start: int, end: int) -> str:
+    """The snippet around a match. Every credential that overlaps it is replaced, also one cut by the window's
+    edge, so a finding of any rule cannot repeat a key found on the same line."""
     low = max(0, start - 40) if start > 100 else 0
-    return sanitize(text[low:end + 100], 140)
+    high = end + 100
+    piece = text[low:high]
+    for match in reversed([m for m in SEC_01.finditer(text) if m.end() > low and m.start() < high]):
+        piece = piece[:max(match.start(), low) - low] + REDACTED + piece[min(match.end(), high) - low:]
+    return sanitize(piece, 140)
 
 
 def _line_starts(text: str):
@@ -334,7 +340,7 @@ def vet_path(root: str, max_per_rule: int = 20) -> dict:
                 scripts = {}
             for key in LIFECYCLE:
                 if isinstance(scripts, dict) and scripts.get(key):
-                    add("INST-01", "medium", rel, 1, sanitize("%s: %s" % (key, scripts[key]), 140),
+                    add("INST-01", "medium", rel, 1, sanitize(SEC_01.sub(REDACTED, "%s: %s" % (key, scripts[key])), 140),
                         "package lifecycle script runs during install")
         if scopes & {"skill", "hook", "agent"}:
             for rule, number, column, char in _unicode_kinds(text):
@@ -359,10 +365,6 @@ def vet_path(root: str, max_per_rule: int = 20) -> dict:
                     continue
                 for chunk in _chunks(logical):
                     match = regex.search(chunk)
-                    if match and rule in REDACTED_RULES:
-                        add(rule, severity, rel, number,
-                            lambda c=chunk, m=match: _window(c[:m.start()] + "[REDACTED]" + c[m.end():], m.start(), m.start() + 10), msg)
-                        break
                     if match:
                         add(rule, severity, rel, number, lambda c=chunk, m=match: _window(c, m.start(), m.end()), msg)
                         break
