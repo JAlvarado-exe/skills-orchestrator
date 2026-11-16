@@ -128,5 +128,34 @@ class VetCleanTests(unittest.TestCase):
             self.assertEqual(report["summary"]["high"], 0)
 
 
+class EmbeddedCredentialTests(unittest.TestCase):
+    # Fake keys are built by concatenation so secret scanners do not flag this file.
+    FAKE = {
+        "github": "gh" + "p_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8",
+        "anthropic": "sk-" + "ant-" + "api03-" + "x" * 40,
+        "aws": "AK" + "IA" + "ABCDEFGHIJKLMNOP",
+        "slack": "xo" + "xb-" + "1234567890-abcdefghij",
+        "private key": "-----BEGIN RSA " + "PRIVATE KEY-----",
+    }
+
+    def vet_text(self, text):
+        with tempfile.TemporaryDirectory() as tmp:
+            skill(tmp, "skills/leaky", "leaky", "Uses a service.", body=text)
+            return [f for f in vet_path(tmp)["findings"] if f["rule"] == "SEC-01"]
+
+    def test_each_credential_shape_is_flagged_high_and_redacted(self):
+        for kind, value in self.FAKE.items():
+            with self.subTest(kind=kind):
+                found = self.vet_text("Set the token: %s\n" % value)
+                self.assertEqual(len(found), 1)
+                self.assertEqual(found[0]["severity"], "high")
+                self.assertNotIn(value, found[0]["snippet"])
+                self.assertIn("[REDACTED]", found[0]["snippet"])
+
+    def test_prose_about_keys_is_not_flagged(self):
+        text = "Read the API key from the environment. Never paste a password or a private key here. Use sk- prefixed keys.\n"
+        self.assertEqual(self.vet_text(text), [])
+
+
 if __name__ == "__main__":
     unittest.main()

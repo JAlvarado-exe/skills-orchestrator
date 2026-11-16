@@ -56,6 +56,15 @@ EXEC_02 = re.compile(
     r"(\beval\s*[(\$\"'`]|\bexec\s*\(|\bos\.system\s*\(|\bos\.popen\s*\(|\bsubprocess\.Popen\s*\(|\bnew\s+Function\s*\("
     r"|shell\s*=\s*True|\bchild_process\b|\bexecSync\s*\(|\bInvoke-Expression\b)", _I)
 
+SEC_01 = re.compile(
+    r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----"
+    r"|\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}\b|\bgithub_pat_[A-Za-z0-9_]{50,}"
+    r"|\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{32,}"
+    r"|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"
+    r"|\bxox[abposr]-[A-Za-z0-9-]{10,}"
+    r"|\bAIza[0-9A-Za-z_-]{35}\b")
+REDACTED_RULES = frozenset({"SEC-01"})  # the snippet never repeats the matched value
+
 _ALL = ("skill", "hook", "install", "agent")
 # (rule id, severity, scopes, regex, message). Every gap is bounded so a hostile line cannot cost more than linear time.
 TEXT_RULES = [
@@ -75,6 +84,7 @@ TEXT_RULES = [
         r"\b(cat|read|type|get-content|copy|cp|scp|upload|send|curl|post)\b[^\n]{0,40}"
         r"(\.ssh[/\\]|id_rsa|id_ed25519|\.aws[/\\]credentials|\.npmrc|\.netrc|\.env\b|credentials\.json|\.git-credentials)", _I),
      "reads or sends credential files"),
+    ("SEC-01", "high", _ALL, SEC_01, "embedded credential: rotate it and do not install"),
     ("NET-01", "medium", _ALL, re.compile(
         r"https?://[^\s'\"<>)]{1,200}\.(exe|msi|dll|ps1|sh|bat|cmd|zip|tar\.gz|tgz|whl|jar|dmg|pkg|deb|rpm)\b", _I),
      "downloads an executable or archive"),
@@ -349,6 +359,10 @@ def vet_path(root: str, max_per_rule: int = 20) -> dict:
                     continue
                 for chunk in _chunks(logical):
                     match = regex.search(chunk)
+                    if match and rule in REDACTED_RULES:
+                        add(rule, severity, rel, number,
+                            lambda c=chunk, m=match: _window(c[:m.start()] + "[REDACTED]" + c[m.end():], m.start(), m.start() + 10), msg)
+                        break
                     if match:
                         add(rule, severity, rel, number, lambda c=chunk, m=match: _window(c, m.start(), m.end()), msg)
                         break

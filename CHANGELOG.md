@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `vet` rule SEC-01 (high): an embedded credential in a skill, hook, installer or agent file (private key block,
+  GitHub, OpenAI or Anthropic style, AWS access key id, Slack and Google API key shapes). The finding's snippet shows
+  `[REDACTED]` instead of the value. Prose that only talks about keys is not flagged.
+
 ## [0.2.0] - 2026-11-16
 
 Retrieval v2: the hook stays silent unless it has something relevant, and what it shows is right more often. On the
