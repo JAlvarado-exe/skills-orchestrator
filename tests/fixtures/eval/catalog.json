@@ -1,0 +1,28 @@
+{
+ "items": [
+  {
+   "name": "token-saver",
+   "kind": "cli",
+   "upstream": "https://example.invalid/token-saver",
+   "what": "CLI proxy that filters command output to save tokens: wraps build, test, git, file listing and any shell command the user runs.",
+   "impact": "Always on; every code command and file output becomes shorter.",
+   "activation": "Install the hook once; it runs on every command."
+  },
+  {
+   "name": "graph-index",
+   "kind": "mcp",
+   "upstream": "https://example.invalid/graph-index",
+   "what": "Index a code repository into a knowledge graph so an agent can ask structural questions: callers, dependencies, modules.",
+   "impact": "Faster code navigation in large repositories.",
+   "activation": "When exploring or answering structural questions about a repository."
+  },
+  {
+   "name": "model-gateway",
+   "kind": "gateway",
+   "upstream": "https://example.invalid/model-gateway",
+   "what": "Gateway that routes agent prompts to other model providers when the usage limit or quota is reached.",
+   "impact": "Keeps sessions running after the weekly limit by switching providers.",
+   "activation": "When the quota or usage limit runs out."
+  }
+ ]
+}

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+import difflib
 import hashlib
 import json
 import math
@@ -11,6 +12,7 @@ import sys
 
 from .jsonio import read_json
 from .sanitize import sanitize
+from .search import tokenize, tokenizer_id
 from .skillfile import read_skill
 
 EXCLUDE_DIRS = {"node_modules", ".git", "__pycache__", ".venv", "venv", ".trash"}
@@ -20,6 +22,8 @@ SKILL_FILE = "SKILL.md"
 DESCRIPTION_STORE_LIMIT = 4000
 SOURCE_LIMIT = 100
 LISTING_DESC_LIMIT = 1536  # per-entry cap Claude Code applies to description + when_to_use
+REGISTRY_VERSION = 2
+NEAR_COPY_RATIO = 0.90    # same name and at least this share of equal text: an old or edited copy of one skill
 
 
 def _inside(real_root: str, real: str) -> bool:
@@ -137,6 +141,7 @@ def catalog_entries(path: str):
             "path": upstream, "upstream": upstream, "paths": [], "variants": [],
             "sha256": hashlib.sha256(json.dumps(item, sort_keys=True).encode("utf-8", "replace")).hexdigest(), "bytes": 0,
             "frontmatter_ok": True, "listed": False, "est_tokens": 0, "rating": item.get("rating"), "risk": item.get("risk"),
+            "dup_group": "catalog/" + slug,
         })
     return sorted(entries, key=lambda e: e["id"])
 
@@ -213,6 +218,7 @@ def build_registry(root_specs):
         groups.setdefault((record["source"], record["info"]["name"]), []).append(record)
 
     entries = []
+    normalized = {}
     for (source, name), members in groups.items():
         members.sort(key=_rank_key)
         primary, others = members[0], members[1:]
@@ -236,14 +242,20 @@ def build_registry(root_specs):
             "bytes": info["bytes"],
             "frontmatter_ok": info["frontmatter_ok"],
             "listed": info["listed"],
+            "norm_sha": info["norm_sha256"],
         }
+        normalized[entry["id"]] = info["normalized"]
         if info.get("truncated"):
             entry["truncated"] = True
         entry["est_tokens"] = estimate_tokens(name, entry["description"], entry["when_to_use"]) if info["listed"] else 0
         entries.append(entry)
     entries.sort(key=lambda e: e["id"])
+    assign_dup_groups(entries, normalized)
+    for entry in entries:
+        entry["tok"] = entry_tokens(entry)
     return {
-        "version": 1,
+        "version": REGISTRY_VERSION,
+        "tokenizer": tokenizer_id(),
         "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "roots": root_report,
         "missing_roots": missing,
@@ -251,6 +263,66 @@ def build_registry(root_specs):
         "errors": errors,
         "entries": entries,
     }
+
+
+def entry_tokens(entry: dict) -> dict:
+    """Name and body tokens stored in the registry so a search does not tokenize every description again."""
+    return {"name": tokenize(entry.get("name", "")),
+            "body": tokenize(entry.get("description", "") + " " + entry.get("when_to_use", ""))}
+
+
+def assign_dup_groups(entries, normalized) -> None:
+    """Give copies of one skill the same ``dup_group``: same normalized text, or same name and at least
+    NEAR_COPY_RATIO equal text, measured character by character (old versions and lightly edited copies)."""
+    parent = {e["id"]: e["id"] for e in entries}
+
+    def find(ident):
+        while parent[ident] != ident:
+            parent[ident] = parent[parent[ident]]
+            ident = parent[ident]
+        return ident
+
+    def join(first, second):
+        a, b = find(first), find(second)
+        if a != b:
+            parent[max(a, b)] = min(a, b)
+
+    by_hash, by_name = {}, {}
+    for entry in entries:
+        by_hash.setdefault(entry.get("norm_sha"), []).append(entry["id"])
+        by_name.setdefault(entry["name"].lower(), []).append(entry["id"])
+    for ids in by_hash.values():
+        for other in ids[1:]:
+            join(ids[0], other)
+    for ids in by_name.values():
+        for index, first in enumerate(ids):
+            for second in ids[index + 1:]:
+                if find(first) == find(second):
+                    continue
+                matcher = difflib.SequenceMatcher(None, normalized.get(first, ""), normalized.get(second, ""), autojunk=False)
+                if matcher.real_quick_ratio() >= NEAR_COPY_RATIO and matcher.quick_ratio() >= NEAR_COPY_RATIO \
+                        and matcher.ratio() >= NEAR_COPY_RATIO:
+                    join(first, second)
+    for entry in entries:
+        entry["dup_group"] = find(entry["id"])
+
+
+def upgrade_registry(registry: dict) -> dict:
+    """Bring an older registry (or one tokenized with other stopwords) to the current format, in memory."""
+    if not isinstance(registry, dict) or not isinstance(registry.get("entries"), list):
+        return registry
+    current = tokenizer_id()
+    retokenize = registry.get("tokenizer") != current
+    for entry in registry["entries"]:
+        if not isinstance(entry, dict):
+            continue
+        entry.setdefault("norm_sha", entry.get("sha256"))
+        entry.setdefault("dup_group", entry.get("id"))
+        if retokenize or not isinstance(entry.get("tok"), dict):
+            entry["tok"] = entry_tokens(entry)
+    registry["tokenizer"] = current
+    registry["version"] = max(REGISTRY_VERSION, registry.get("version", 1) if isinstance(registry.get("version"), int) else 1)
+    return registry
 
 
 def roots_signature(specs, catalogs=()):

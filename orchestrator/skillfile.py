@@ -118,6 +118,7 @@ def read_skill(path: str) -> dict:
     if not description:
         description = _first_paragraph(_body(text))
     when = fields.get("when_to_use") if isinstance(fields.get("when_to_use"), str) else ""
+    normalized = normalize_text(text)
     return {
         "name": sanitize(name, NAME_LIMIT) or sanitize(dirname, NAME_LIMIT) or "unnamed",
         "description": description,
@@ -127,4 +128,13 @@ def read_skill(path: str) -> dict:
         "sha256": hashlib.sha256(raw).hexdigest(),
         "bytes": len(raw),
         "truncated": truncated,
+        "normalized": normalized,
+        "norm_sha256": hashlib.sha256(normalized.encode("utf-8")).hexdigest(),
     }
+
+
+def normalize_text(text: str) -> str:
+    """The text with line endings unified, trailing spaces dropped and outer blank lines removed: copies that differ
+    only in those ways hash the same."""
+    lines = [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    return "\n".join(lines).strip("\n")

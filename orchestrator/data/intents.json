@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "note": "Keyword table for the request's intent. Keywords are folded (no accents, lower case) single words; English words are matched after the same stemming as the search. The most hits wins, ties go to the earlier intent, no hit means none. The profile of the winning intent is ranked higher, never used as a filter.",
+  "intents": [
+    {"id": "debug", "profile": "code", "keywords": ["debug", "bug", "error", "crash", "broken", "failing", "fails", "fail", "stack", "trace", "exception", "regression", "intermittent", "depura", "depurar", "falla", "fallan", "fallar", "error", "errores", "roto", "rota", "cae", "cayo"]},
+    {"id": "review", "profile": "code", "keywords": ["review", "audit", "diff", "pr", "critique", "inspect", "revisa", "revisar", "reviso", "revision", "audita", "auditar", "auditoria"]},
+    {"id": "build", "profile": "code", "keywords": ["implement", "build", "create", "add", "feature", "refactor", "test", "tests", "code", "api", "endpoint", "migrate", "implementa", "implementar", "construye", "construir", "crea", "crear", "agrega", "agregar", "funcionalidad", "pruebas", "programa"]},
+    {"id": "research", "profile": "research", "keywords": ["research", "investigate", "compare", "competitor", "competitors", "market", "sources", "survey", "explore", "map", "investiga", "investigar", "competidores", "mercado", "fuentes", "explora", "explorar"]},
+    {"id": "write", "profile": "docs", "keywords": ["write", "draft", "document", "docs", "readme", "copy", "email", "diagram", "slides", "presentation", "rewrite", "changelog", "escribe", "escribir", "redacta", "redactar", "documento", "correo", "diagrama", "presentacion", "texto"]},
+    {"id": "decide", "profile": "business", "keywords": ["decide", "decision", "choose", "pick", "tradeoff", "tradeoffs", "price", "pricing", "prioritize", "validate", "decide", "decidir", "decision", "elegir", "escoger", "precio", "precios", "cobrar", "priorizar", "valida", "validar", "opciones"]},
+    {"id": "operate", "profile": null, "keywords": ["deploy", "incident", "outage", "backup", "restore", "server", "production", "monitor", "schedule", "cron", "logs", "despliega", "desplegar", "incidente", "respaldo", "servidor", "produccion", "programar", "monitorear"]}
+  ]
+}

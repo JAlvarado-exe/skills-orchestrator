@@ -1,0 +1,7 @@
+{
+ "session_id": "fixture",
+ "transcript_path": "t",
+ "cwd": "",
+ "hook_event_name": "UserPromptSubmit",
+ "prompt": "<cross-session-message from=\"build-session\">Please review the pull request and fix the failing payment test.</cross-session-message>"
+}

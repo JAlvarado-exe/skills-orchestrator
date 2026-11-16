@@ -1,0 +1,7 @@
+{
+ "session_id": "fixture",
+ "transcript_path": "t",
+ "cwd": "",
+ "hook_event_name": "UserPromptSubmit",
+ "prompt": "[Request interrupted by user for tool use]"
+}

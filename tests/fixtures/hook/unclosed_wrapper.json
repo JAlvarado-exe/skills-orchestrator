@@ -1,0 +1,7 @@
+{
+ "session_id": "fixture",
+ "transcript_path": "t",
+ "cwd": "",
+ "hook_event_name": "UserPromptSubmit",
+ "prompt": "<task-notification>\n<status>completed</status>\n<result>failing payment test review and console error fix"
+}

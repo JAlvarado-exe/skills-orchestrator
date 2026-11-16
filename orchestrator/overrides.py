@@ -29,8 +29,7 @@ def apply_overrides(entries, overrides: dict):
         copy = dict(entry)
         tags = [t for t in override.get("tags", []) if isinstance(t, str)]
         if tags:
-            copy["tags"] = tags
-            copy["when_to_use"] = (entry.get("when_to_use", "") + " " + " ".join(tags)).strip()
+            copy["tags"] = tags  # searched as their own field (see search.doc_fields)
         if isinstance(override.get("note"), str):
             copy["note"] = override["note"]
         if "internal" in override:
