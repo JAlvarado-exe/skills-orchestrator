@@ -64,6 +64,17 @@ class RankingTests(unittest.TestCase):
         self.assertEqual(retrieve(pool, [pasted]), [])
         self.assertTrue(retrieve(pool, ["console errors in the browser page"]))
 
+    def test_one_spanish_word_with_two_translations_is_one_piece_of_evidence(self):
+        # "actualizacion" translates to "update upgrade": a skill that only shares that one word must stay out
+        pool = corpus(entry("tool-upgrade", "Update and upgrade the tool to the latest version."))
+        self.assertEqual(retrieve(pool, ["dame la actualizacion de lo hecho"]), [])
+        self.assertTrue(retrieve(pool, ["actualiza la herramienta a la ultima version"]))
+
+    def test_reverse_engineering_in_spanish_finds_the_skill(self):
+        pool = corpus(entry("reverse-engineer-anything", "Reverse engineering of a binary, protocol or repository."))
+        names = [r["entry"]["name"] for r in retrieve(pool, ["haz ingenieria inversa de este repositorio"])]
+        self.assertEqual(names, ["reverse-engineer-anything"])
+
     def test_results_below_the_relative_floor_are_dropped(self):
         pool = corpus(entry("helm-deploy", "Deploy a helm chart to a kubernetes cluster with values and rollbacks."),
                       entry("cluster-notes", "Notes about a kubernetes meetup."))

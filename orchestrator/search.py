@@ -158,24 +158,52 @@ def _translate(word: str, single: dict):
     return None
 
 
-def _query_tokens(folded: str):
-    """Stemmed tokens of the typed words plus the English equivalents of any Spanish word in the table.
+def _query_units(folded: str):
+    """One list of stemmed tokens per word the user typed (the word plus its English equivalents), and one per
+    multi-word phrase found in the translation table.
 
     The typed word is always kept, so a word that is also English ("error") still matches itself.
     """
     single, multi = load_translations()
     words = _WORD.findall(folded)
     joined = " ".join(words)
-    tokens = []
+    units = []
     for pattern, english in multi:
         if pattern.search(joined):
-            tokens.extend(tokenize(english))
+            units.append(tokenize(english))
     for word in words:
-        tokens.extend(tokenize(word))
+        unit = tokenize(word)
         english = None if word in STOPWORDS else _translate(word, single)
         if english:
-            tokens.extend(tokenize(english))
-    return tokens
+            unit = unit + tokenize(english)
+        if unit:
+            units.append(unit)
+    return units
+
+
+def _query_tokens(folded: str):
+    return [token for unit in _query_units(folded) for token in unit]
+
+
+def query_units(query: str):
+    """Distinct sets of tokens, one per typed word or translated phrase, widened with the word's synonym group: the
+    units of evidence for the term gate.
+
+    One Spanish word that translates to two English words ("actualizacion" -> update, upgrade) is one unit, so it
+    cannot pass a two-term gate on its own; "fail" still counts against "failure" through its group.
+    """
+    related, _phrases = load_synonyms()
+    seen, units = [], []
+    for unit in _query_units(fold(query)):
+        typed = frozenset(unit)
+        if typed in seen:
+            continue
+        seen.append(typed)
+        wide = set(typed)
+        for token in typed:
+            wide |= related.get(token, set())
+        units.append(frozenset(wide))
+    return units
 
 
 def query_terms(query: str):
@@ -295,10 +323,22 @@ def required_terms(query_term_count: int, min_terms: int = DEFAULT_MIN_TERMS) ->
     return max(min_terms, min(MAX_REQUIRED_TERMS, int(math.ceil(query_term_count / float(TERMS_PER_REQUIRED)))))
 
 
-def match_count(entry: dict, exact, groups) -> int:
-    """Distinct pieces of evidence: each request term found in the skill, plus each synonym group with a hit."""
+def match_count(entry: dict, exact, groups, units=None) -> int:
+    """Distinct pieces of evidence: each request term found in the skill, plus each synonym group with a hit.
+
+    With units (from query_units), a typed word counts once however many of its translations the skill contains.
+    """
     present = set(_doc_tokens(entry))
-    return sum(1 for token in exact if token in present) + sum(1 for group in groups if group & present)
+    if units is None:
+        return sum(1 for token in exact if token in present) + sum(1 for group in groups if group & present)
+    # each unit needs its own word of the skill: two typed words that are synonyms of one skill word count once
+    used, hits = set(), 0
+    for found in sorted((unit & present for unit in units), key=len):
+        free = found - used
+        if free:
+            used.add(min(free))
+            hits += 1
+    return hits
 
 
 def confident_matches(entries, queries, min_score: float = DEFAULT_MIN_SCORE, min_terms: int = DEFAULT_MIN_TERMS,
@@ -308,7 +348,8 @@ def confident_matches(entries, queries, min_score: float = DEFAULT_MIN_SCORE, mi
     unit = unit_weight(len(entries))
     for query in queries:
         exact, groups = query_terms(query)
-        need = required_terms(len(exact), min_terms)
+        units = query_units(query)
+        need = required_terms(len(units), min_terms)
         if not need:
             continue
         # the normalized score is roughly a count of rare-word matches: a one-word request cannot reach two
@@ -317,7 +358,7 @@ def confident_matches(entries, queries, min_score: float = DEFAULT_MIN_SCORE, mi
             score = raw / unit
             if score < floor_score:
                 break
-            if match_count(entry, exact, groups) < need:
+            if match_count(entry, exact, groups, units) < need:
                 continue
             ident = entry.get("id", "")
             if ident not in best or score > best[ident][0]:

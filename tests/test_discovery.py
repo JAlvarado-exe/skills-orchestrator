@@ -520,6 +520,10 @@ class TranslationTests(unittest.TestCase):
         for word in ("respalda", "respaldar", "respaldo", "respaldas"):
             self.assertIn(backup, self.exact(word), word)
 
+    def test_tone_and_style_words_translate(self):
+        for spanish, english in (("ia", "ai"), ("suena", "sounds"), ("cavernicola", "caveman"), ("cortas", "short")):
+            self.assertIn(tokenize(english)[0], self.exact(spanish), spanish)
+
     def test_multi_word_entries(self):
         self.assertIn(tokenize("database")[0], self.exact("la base de datos"))
 

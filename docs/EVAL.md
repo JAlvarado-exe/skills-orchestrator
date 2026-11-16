@@ -37,13 +37,16 @@ numbers as a regression check, not as a measure of real-world quality.
 | Version | precision@3 | hit@3 | silent | silenced wrongly | forbidden shown |
 | --- | --- | --- | --- | --- | --- |
 | 0.1.2 (baseline, before retrieval v2) | 0.389 | 1.000 | 0/10 | 0 | 7 |
-| 0.2.0 | 0.944 | 1.000 | 10/10 | 0 | 0 |
+| 0.2.0 | 0.961 | 1.000 | 10/10 | 0 | 0 |
 
 What changed the numbers: the baseline showed five results for every message (the hook's default), so most of the
 first three were noise, it answered every notification and small-talk message, and it showed the blocked source
 and the extra copies. The first 0.2.0 run silenced one case wrongly (`es-backup`, "respalda la base de datos..."):
 the translation table had no entry for "respalda", so only one weak word matched. Adding "respalda" and "respaldas"
 to the table (not changing the thresholds or the case) fixed it; before that fix the row read 0.911, 0.967 and 1.
+A later change counts the term gate's evidence per typed word instead of per token (one Spanish word with two
+English translations no longer counts twice; synonyms still count, and each word of the skill backs one typed word
+only). It took precision at 3 from 0.944 to 0.961 here.
 
 ## How the thresholds were chosen
 
@@ -58,10 +61,12 @@ them and little passes; `--min-score 0` shows everything.
 
 The author also ran 20 private cases (15 that expect a skill, 9 of them in Spanish, and 5 that must be silent) against a real
 registry of about 520 skills. They were written before the change and are not published because they name local
-skills. One change was made after seeing them: the word "task" was taken off the generic-word list, because it is
-the distinctive word of planning skills.
+skills. Changes made after seeing them: the word "task" was taken off the generic-word list, because it is the
+distinctive word of planning skills; the per-word evidence count above; and five Spanish words missing from the
+translation table ("ia", "suena", "sonar", "cavernicola", "corta"), found because two of these cases had passed
+only through the double count. Treat the private numbers as tuned, not held out.
 
 | Version | precision@3 | hit@3 | silent |
 | --- | --- | --- | --- |
 | 0.1.2 | 0.600 | 0.933 | 0/5 |
-| 0.2.0 | 0.744 | 0.933 | 5/5 |
+| 0.2.0 | 0.722 | 1.000 | 5/5 |
