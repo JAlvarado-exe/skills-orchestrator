@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [0.2.0] - 2026-11-16
 
 Retrieval v2: the hook stays silent unless it has something relevant, and what it shows is right more often. On the
-40 shipped evaluation cases precision at 3 went from 0.389 to 0.911 and the must-be-silent cases from 0/10 to 10/10
+40 shipped evaluation cases precision at 3 went from 0.389 to 0.944 and the must-be-silent cases from 0/10 to 10/10
 (see docs/EVAL.md for the method and its limits).
 
 ### Added
@@ -33,6 +33,7 @@ Retrieval v2: the hook stays silent unless it has something relevant, and what i
   decide, operate. The matching profile is ranked higher, never used as a filter; the intent is printed.
 - Results are labeled `SKILL` or `TOOL`. A timing test keeps the hook's selection under 150 ms on 1,000 entries.
 - A test that keeps the Precedence, Never and "Adding a skill or tool" sections of SKILL.md unchanged.
+- Translations for "respalda" and "respaldas" (back up), so a Spanish backup request is no longer silenced.
 
 ### Changed
 

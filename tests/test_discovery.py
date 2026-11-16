@@ -515,6 +515,11 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(self.exact("depuración"), self.exact("depuracion"))
         self.assertIn(tokenize("debug")[0], self.exact("depurar"))
 
+    def test_verb_forms_of_backup_translate(self):
+        backup = tokenize("backup")[0]
+        for word in ("respalda", "respaldar", "respaldo", "respaldas"):
+            self.assertIn(backup, self.exact(word), word)
+
     def test_multi_word_entries(self):
         self.assertIn(tokenize("database")[0], self.exact("la base de datos"))
 

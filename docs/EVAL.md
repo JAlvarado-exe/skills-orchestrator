@@ -37,19 +37,19 @@ numbers as a regression check, not as a measure of real-world quality.
 | Version | precision@3 | hit@3 | silent | silenced wrongly | forbidden shown |
 | --- | --- | --- | --- | --- | --- |
 | 0.1.2 (baseline, before retrieval v2) | 0.389 | 1.000 | 0/10 | 0 | 7 |
-| 0.2.0 | 0.911 | 0.967 | 10/10 | 1 | 0 |
+| 0.2.0 | 0.944 | 1.000 | 10/10 | 0 | 0 |
 
 What changed the numbers: the baseline showed five results for every message (the hook's default), so most of the
 first three were noise, it answered every notification and small-talk message, and it showed the blocked source
-and the extra copies. The one case that 0.2.0 silences wrongly (`es-backup`, "respalda la base de datos...") has no
-Spanish entry for "respalda", so only one weak word matches; the fix belongs in the translation table, not in the
-thresholds.
+and the extra copies. The first 0.2.0 run silenced one case wrongly (`es-backup`, "respalda la base de datos..."):
+the translation table had no entry for "respalda", so only one weak word matched. Adding "respalda" and "respaldas"
+to the table (not changing the thresholds or the case) fixed it; before that fix the row read 0.911, 0.967 and 1.
 
 ## How the thresholds were chosen
 
 `min_score` (1.7, normalized), `min_terms` (2) and the relative floor (0.35) were read off the score distribution of
 the even-numbered cases (calibration half) and then checked on the odd-numbered ones (validation half): on both
-halves every expected skill scored above the threshold except `es-backup`, and most unexpected results fell below
+halves every expected skill scored above the threshold except `es-backup` (fixed later in the translation table), and most unexpected results fell below
 it or below the relative floor. The score is normalized by the weight of one rare word, so the same threshold
 applies to registries of different size. In a registry of only two or three skills most words are common to all of
 them and little passes; `--min-score 0` shows everything.
