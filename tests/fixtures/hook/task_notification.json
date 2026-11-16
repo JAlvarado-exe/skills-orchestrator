@@ -1,0 +1,7 @@
+{
+ "session_id": "fixture",
+ "transcript_path": "t",
+ "cwd": "",
+ "hook_event_name": "UserPromptSubmit",
+ "prompt": "<task-notification>\n<task-id>a2ec6fa899cd86a48</task-id>\n<status>completed</status>\n<summary>Background command finished</summary>\n</task-notification>"
+}

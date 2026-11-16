@@ -1,0 +1,7 @@
+{
+ "session_id": "fixture",
+ "transcript_path": "t",
+ "cwd": "",
+ "hook_event_name": "UserPromptSubmit",
+ "prompt": "<local-command-caveat>The command below was run directly by the user.</local-command-caveat>\n<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args></command-args>\n<local-command-stdout>Compacted the conversation</local-command-stdout>"
+}

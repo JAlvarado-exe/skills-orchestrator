@@ -25,19 +25,16 @@ from .jsonio import read_json
 _WORD = re.compile(r"[^\W_]+", re.UNICODE)
 SYNONYMS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "synonyms.json")
 EXPANSION_WEIGHT = 0.5
-# `find` calls a result set weak when it cannot be taken as proof that no skill exists: the best
-# BM25 score is below WEAK_BEST_SCORE, or fewer than WEAK_MIN_RESULTS skills matched at all.
-# BM25 scores grow with corpus size, so these are rough guards chosen on small registries.
-WEAK_BEST_SCORE = 3.0
-WEAK_MIN_RESULTS = 3
-# A result also counts as weak when no shown skill contains at least this many of the request's terms
-# (or all of them, for a one-word request): one shared word such as "server" is not a match.
-WEAK_MIN_TERMS = 2
+# Confidence gates (see docs/EVAL.md for how they were chosen). A result is shown only when its normalized score is
+# at least MIN_SCORE, it shares enough distinct terms with the request (required_terms) and it scores at least
+# RELATIVE_FLOOR times the best result. Below that, silence is better than a guess. The normalized score divides the
+# BM25F score by the weight of one rare word (unit_weight), so the same threshold works for 5 skills and for 5,000.
+DEFAULT_MIN_SCORE = 1.7
+DEFAULT_MIN_TERMS = 2
+MAX_REQUIRED_TERMS = 5
+TERMS_PER_REQUIRED = 12
+RELATIVE_FLOOR = 0.35
 _VOWELS = "aeiou"
-_ENGLISH_STOPWORDS = (
-    "a an and any are as at be by do does for from how i if in is it its my not of on or so that the this to we "
-    "when will with you your use used using can all"
-).split()
 
 
 def fold(text: str) -> str:
@@ -58,13 +55,28 @@ def _read_data() -> dict:
 
 
 def _stopwords() -> frozenset:
-    """English function words plus the Spanish ones listed under "stopwords" in data/synonyms.json."""
-    listed = _read_data().get("stopwords", [])
-    spanish = [fold(word) for word in listed if isinstance(word, str)] if isinstance(listed, list) else []
-    return frozenset(_ENGLISH_STOPWORDS + spanish)
+    """The English ("stopwords_en") and Spanish ("stopwords") lists of data/synonyms.json, folded.
+
+    Both hold function words and generic task words ("code", "file", "run") that appear in almost every request
+    and every skill: counting them let the same few skills win whatever the task was.
+    """
+    data = _read_data()
+    words = []
+    for key in ("stopwords_en", "stopwords"):
+        listed = data.get(key, [])
+        if isinstance(listed, list):
+            words.extend(fold(word) for word in listed if isinstance(word, str))
+    return frozenset(words)
 
 
 STOPWORDS = _stopwords()
+STEMMER_VERSION = "stem-1"
+
+
+def tokenizer_id() -> str:
+    """Fingerprint of everything that changes tokens: a registry whose stored tokens carry another id is re-tokenized."""
+    import hashlib
+    return hashlib.sha256((STEMMER_VERSION + "\n" + " ".join(sorted(STOPWORDS))).encode("utf-8")).hexdigest()[:16]
 
 
 def _stem(token: str) -> str:
@@ -184,37 +196,80 @@ def query_terms(query: str):
     return exact, groups
 
 
+# BM25F field weights: a word in the skill's name says more than one in its tags, and tags more than prose.
+FIELD_WEIGHTS = (("name", 3.0), ("tags", 2.0), ("body", 1.0))
+K1 = 1.2
+B = 0.75
+
+
+def doc_fields(entry: dict) -> dict:
+    """Tokens per field: name, tags (from overrides) and body (description plus when_to_use).
+
+    A registry built by this version stores name and body tokens under ``tok``; they are reused when present.
+    """
+    stored = entry.get("tok")
+    if isinstance(stored, dict) and isinstance(stored.get("name"), list) and isinstance(stored.get("body"), list):
+        name, body = stored["name"], stored["body"]
+    else:
+        name = tokenize(entry.get("name", ""))
+        body = tokenize(entry.get("description", "") + " " + entry.get("when_to_use", ""))
+    tags = entry.get("tags")
+    tag_tokens = tokenize(" ".join(t for t in tags if isinstance(t, str))) if isinstance(tags, list) else []
+    return {"name": name, "tags": tag_tokens, "body": body}
+
+
 def _doc_tokens(entry: dict):
-    return tokenize(entry.get("name", "")) * 3 + tokenize(entry.get("description", "")) + tokenize(entry.get("when_to_use", ""))
+    fields = doc_fields(entry)
+    return fields["name"] + fields["tags"] + fields["body"]
 
 
-def rank(entries, query: str, k: int = 5, k1: float = 1.5, b: float = 0.75):
-    """Return up to k (score, entry) pairs, best first. Only entries with score > 0."""
+def unit_weight(entry_count: int) -> float:
+    """The BM25 inverse document frequency of a word found in exactly one of entry_count skills."""
+    return math.log(1.0 + (max(entry_count, 1) - 0.5) / 1.5) or 1.0
+
+
+def rank(entries, query: str, k: int = 5, k1: float = K1, b: float = B):
+    """Return up to k (score, entry) pairs, best first. Only entries with score > 0.
+
+    BM25F: each field's term frequency is length-normalized against that field's average and weighted
+    (FIELD_WEIGHTS) before the usual saturation, so a long description cannot outweigh a name.
+    """
     exact, groups = query_terms(query)
     if (not exact and not groups) or not entries:
         return []
-    docs = [_doc_tokens(e) for e in entries]
+    docs = [doc_fields(e) for e in entries]
     n = len(docs)
-    avg = (sum(len(d) for d in docs) / float(n)) or 1.0
+    avg = {}
+    for field, _weight in FIELD_WEIGHTS:
+        # averaged over the entries that have the field: tags are sparse, and counting empty ones would make the
+        # few tagged entries look long and push their tags down
+        filled = [len(d[field]) for d in docs if d[field]]
+        avg[field] = (sum(filled) / float(len(filled))) if filled else 1.0
     df = {}
     for doc in docs:
-        for token in set(doc):
+        for token in set(doc["name"]) | set(doc["tags"]) | set(doc["body"]):
             df[token] = df.get(token, 0) + 1
+    wanted = set(exact) | {t for group in groups for t in group}
     scored = []
     for entry, doc in zip(entries, docs):
-        if not doc:
+        weighted = {}
+        for field, weight in FIELD_WEIGHTS:
+            tokens = doc[field]
+            if not tokens:
+                continue
+            norm = 1.0 - b + b * len(tokens) / avg[field]
+            for token in tokens:
+                if token in wanted:
+                    weighted[token] = weighted.get(token, 0.0) + weight / norm
+        if not weighted:
             continue
-        tf = {}
-        for token in doc:
-            tf[token] = tf.get(token, 0) + 1
-        norm = k1 * (1.0 - b + b * len(doc) / avg)
 
         def bm25(token):
-            freq = tf.get(token, 0)
+            freq = weighted.get(token, 0.0)
             if not freq:
                 return 0.0
             idf = math.log(1.0 + (n - df[token] + 0.5) / (df[token] + 0.5))
-            return idf * (freq * (k1 + 1.0)) / (freq + norm)
+            return idf * (freq * (k1 + 1.0)) / (freq + k1)
 
         score = sum(bm25(t) for t in exact)
         score += EXPANSION_WEIGHT * sum(max(bm25(t) for t in group) for group in groups)
@@ -231,19 +286,47 @@ def matched_terms(entry: dict, query: str):
     return [token for token in exact if token in present]
 
 
-def is_covered(entry: dict, queries) -> bool:
-    """True when, for at least one phrasing, the skill contains WEAK_MIN_TERMS of its terms (all of them if fewer)."""
+def required_terms(query_term_count: int, min_terms: int = DEFAULT_MIN_TERMS) -> int:
+    """Distinct terms a skill must share with a request of this many terms: all of them for a short request, then
+    min_terms, growing by one per TERMS_PER_REQUIRED terms up to MAX_REQUIRED_TERMS, so a long pasted text cannot be
+    matched on two generic words."""
+    if query_term_count <= min_terms:
+        return query_term_count
+    return max(min_terms, min(MAX_REQUIRED_TERMS, int(math.ceil(query_term_count / float(TERMS_PER_REQUIRED)))))
+
+
+def match_count(entry: dict, exact, groups) -> int:
+    """Distinct pieces of evidence: each request term found in the skill, plus each synonym group with a hit."""
+    present = set(_doc_tokens(entry))
+    return sum(1 for token in exact if token in present) + sum(1 for group in groups if group & present)
+
+
+def confident_matches(entries, queries, min_score: float = DEFAULT_MIN_SCORE, min_terms: int = DEFAULT_MIN_TERMS,
+                      floor: float = RELATIVE_FLOOR):
+    """[(normalized score, entry, matched terms)] that pass the gates for at least one phrasing, best first."""
+    best = {}
+    unit = unit_weight(len(entries))
     for query in queries:
-        exact, _groups = query_terms(query)
-        need = min(WEAK_MIN_TERMS, len(exact))
-        if need and len(matched_terms(entry, query)) >= need:
-            return True
-    return False
-
-
-def is_weak(best_score: float, result_count: int) -> bool:
-    """True when a result set cannot be taken as proof that no skill fits (see WEAK_BEST_SCORE)."""
-    return best_score < WEAK_BEST_SCORE or result_count < WEAK_MIN_RESULTS
+        exact, groups = query_terms(query)
+        need = required_terms(len(exact), min_terms)
+        if not need:
+            continue
+        # the normalized score is roughly a count of rare-word matches: a one-word request cannot reach two
+        floor_score = min_score * min(1.0, len(exact) / 2.0)
+        for raw, entry in rank(entries, query, k=len(entries)):
+            score = raw / unit
+            if score < floor_score:
+                break
+            if match_count(entry, exact, groups) < need:
+                continue
+            ident = entry.get("id", "")
+            if ident not in best or score > best[ident][0]:
+                best[ident] = (score, entry, matched_terms(entry, query))
+    ranked = sorted(best.values(), key=lambda item: (-item[0], item[1].get("id", "")))
+    if not ranked:
+        return []
+    cutoff = ranked[0][0] * floor
+    return [item for item in ranked if item[0] >= cutoff]
 
 
 def name_matches(entries, queries, skip_ids, limit: int = 10, min_length: int = 4):

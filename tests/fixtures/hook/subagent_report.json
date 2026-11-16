@@ -1,0 +1,7 @@
+{
+ "session_id": "fixture",
+ "transcript_path": "t",
+ "cwd": "",
+ "hook_event_name": "UserPromptSubmit",
+ "prompt": "<task-notification>\n<task-id>b71f</task-id>\n<tool-use-id>toolu_01</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the diff\" completed</summary>\n<result>Found a failing test and a console error in the payment page; the pull request needs a fix.</result>\n</task-notification>"
+}

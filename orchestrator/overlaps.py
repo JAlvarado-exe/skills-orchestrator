@@ -14,7 +14,8 @@ def _sources(entry: dict):
 
 
 def _keywords(entry: dict):
-    return set(tokenize(entry.get("name", ""))) | set(tokenize(entry.get("description", "") + " " + entry.get("when_to_use", "")))
+    tags = " ".join(t for t in entry.get("tags", []) if isinstance(t, str))
+    return set(tokenize(entry.get("name", ""))) | set(tokenize(entry.get("description", "") + " " + entry.get("when_to_use", "") + " " + tags))
 
 
 def find_overlaps(entries, threshold: float = 0.4, limit: int = 50, min_shared: int = 4):

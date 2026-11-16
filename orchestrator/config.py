@@ -17,6 +17,8 @@ from .sanitize import sanitize
 CONFIG_ENV = "SKILLS_ORCHESTRATOR_CONFIG"
 REGISTRY_ENV = "SKILLS_ORCHESTRATOR_REGISTRY"
 DEFAULT_MAX_AGE_HOURS = 12
+DEFAULT_HOOK_MIN_CHARS = 8
+DEFAULT_HOOK_TOP = 3
 SOURCE_FROM_MODES = ("first-child", "fixed", "plugin-cache")
 # Skill folders the supported tools read inside a project, relative to the project folder.
 PROJECT_SKILL_DIRS = (".claude/skills", ".agents/skills", ".github/skills", ".cursor/skills", ".gemini/skills",
@@ -40,7 +42,9 @@ def registry_path(config: dict) -> str:
 def _defaults() -> dict:
     return {"path": None, "registry": None, "extra_roots": [], "vendor": [], "catalogs": [], "exclude_paths": [],
             "use_platform_roots": True, "use_cwd_project_roots": True, "max_age_hours": DEFAULT_MAX_AGE_HOURS,
-            "overrides": None, "profiles_dir": None}
+            "overrides": None, "profiles_dir": None, "blocked": [], "preferred": [], "min_score": None, "min_terms": None,
+            "hook_min_chars": DEFAULT_HOOK_MIN_CHARS, "hook_skip_tags": [], "hook_top": DEFAULT_HOOK_TOP, "state_dir": None,
+            "session_memory": True, "feedback": True}
 
 
 def _warn(path: str, message: str) -> None:
@@ -76,6 +80,26 @@ def _path_list(value, base: str, key: str, problems: list):
         else:
             problems.append(key)
     return paths
+
+
+def _text_list(value, key: str, problems: list):
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, str) and item.strip() for item in value):
+        problems.append(key)
+        return [item for item in value if isinstance(item, str) and item.strip()] if isinstance(value, list) else []
+    return [item.strip() for item in value]
+
+
+def _number(data: dict, key: str, problems: list, default, integer: bool = False, minimum: float = 0):
+    value = data.get(key)
+    if value is None:
+        return default
+    ok_type = isinstance(value, int) if integer else isinstance(value, (int, float))
+    if ok_type and not isinstance(value, bool) and value >= minimum:
+        return value
+    problems.append(key)
+    return default
 
 
 def _flag(data: dict, key: str, problems: list) -> bool:
@@ -137,6 +161,16 @@ def load_config(path: str = None, explicit: bool = False) -> dict:
     config["exclude_paths"] = [os.path.realpath(p) for p in _path_list(data.get("exclude_paths"), base, "exclude_paths", problems)]
     config["use_platform_roots"] = _flag(data, "use_platform_roots", problems)
     config["use_cwd_project_roots"] = _flag(data, "use_cwd_project_roots", problems)
+    config["blocked"] = _text_list(data.get("blocked"), "blocked", problems)
+    config["preferred"] = _text_list(data.get("preferred"), "preferred", problems)
+    config["hook_skip_tags"] = _text_list(data.get("hook_skip_tags"), "hook_skip_tags", problems)
+    config["min_score"] = _number(data, "min_score", problems, None)
+    config["min_terms"] = _number(data, "min_terms", problems, None, integer=True, minimum=1)
+    config["hook_min_chars"] = _number(data, "hook_min_chars", problems, DEFAULT_HOOK_MIN_CHARS, integer=True)
+    config["hook_top"] = _number(data, "hook_top", problems, DEFAULT_HOOK_TOP, integer=True, minimum=1)
+    config["state_dir"] = _text_path(data.get("state_dir"), base, "state_dir", problems)
+    config["session_memory"] = _flag(data, "session_memory", problems)
+    config["feedback"] = _flag(data, "feedback", problems)
     age = data.get("max_age_hours", DEFAULT_MAX_AGE_HOURS)
     if isinstance(age, (int, float)) and not isinstance(age, bool) and age >= 0:
         config["max_age_hours"] = age
