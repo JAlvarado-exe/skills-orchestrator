@@ -128,5 +128,60 @@ class VetCleanTests(unittest.TestCase):
             self.assertEqual(report["summary"]["high"], 0)
 
 
+class EmbeddedCredentialTests(unittest.TestCase):
+    # Fake keys are built by concatenation so secret scanners do not flag this file.
+    FAKE = {
+        "github": "gh" + "p_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8",
+        "anthropic": "sk-" + "ant-" + "api03-" + "x" * 40,
+        "aws": "AK" + "IA" + "ABCDEFGHIJKLMNOP",
+        "slack": "xo" + "xb-" + "1234567890-abcdefghij",
+        "private key": "-----BEGIN RSA " + "PRIVATE KEY-----",
+    }
+
+    def vet_text(self, text):
+        with tempfile.TemporaryDirectory() as tmp:
+            skill(tmp, "skills/leaky", "leaky", "Uses a service.", body=text)
+            return [f for f in vet_path(tmp)["findings"] if f["rule"] == "SEC-01"]
+
+    def test_each_credential_shape_is_flagged_high_and_redacted(self):
+        for kind, value in self.FAKE.items():
+            with self.subTest(kind=kind):
+                found = self.vet_text("Set the token: %s\n" % value)
+                self.assertEqual(len(found), 1)
+                self.assertEqual(found[0]["severity"], "high")
+                self.assertNotIn(value, found[0]["snippet"])
+                self.assertIn("[REDACTED]", found[0]["snippet"])
+
+    def assert_no_key_in(self, report):
+        for finding in report["findings"]:
+            for value in self.FAKE.values():
+                self.assertNotIn(value, finding["snippet"], finding)
+
+    def test_a_second_key_on_the_same_line_is_redacted_too(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            skill(tmp, "skills/leaky", "leaky", "Uses a service.",
+                  body="keys %s and %s\n" % (self.FAKE["aws"], self.FAKE["github"]))
+            self.assert_no_key_in(vet_path(tmp))
+
+    def test_other_rules_on_the_same_line_do_not_repeat_the_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            skill(tmp, "skills/leaky", "leaky", "Uses a service.", body='eval("%s")\n' % self.FAKE["github"])
+            report = vet_path(tmp)
+            self.assertIn("EXEC-02", [f["rule"] for f in report["findings"]])
+            self.assert_no_key_in(report)
+
+    def test_a_key_in_a_package_script_is_redacted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scripts = {"scripts": {"postinstall": "curl -H 'token %s' https://example.org" % self.FAKE["github"]}}
+            write(tmp, "package.json", json.dumps(scripts))
+            report = vet_path(tmp)
+            self.assertIn("INST-01", [f["rule"] for f in report["findings"]])
+            self.assert_no_key_in(report)
+
+    def test_prose_about_keys_is_not_flagged(self):
+        text = "Read the API key from the environment. Never paste a password or a private key here. Use sk- prefixed keys.\n"
+        self.assertEqual(self.vet_text(text), [])
+
+
 if __name__ == "__main__":
     unittest.main()

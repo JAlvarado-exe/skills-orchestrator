@@ -56,6 +56,15 @@ EXEC_02 = re.compile(
     r"(\beval\s*[(\$\"'`]|\bexec\s*\(|\bos\.system\s*\(|\bos\.popen\s*\(|\bsubprocess\.Popen\s*\(|\bnew\s+Function\s*\("
     r"|shell\s*=\s*True|\bchild_process\b|\bexecSync\s*\(|\bInvoke-Expression\b)", _I)
 
+SEC_01 = re.compile(
+    r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----"
+    r"|\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}\b|\bgithub_pat_[A-Za-z0-9_]{50,}"
+    r"|\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{32,}"
+    r"|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"
+    r"|\bxox[abposr]-[A-Za-z0-9-]{10,}"
+    r"|\bAIza[0-9A-Za-z_-]{35}\b")
+REDACTED = "[REDACTED]"  # no snippet of any rule repeats a value SEC_01 matches
+
 _ALL = ("skill", "hook", "install", "agent")
 # (rule id, severity, scopes, regex, message). Every gap is bounded so a hostile line cannot cost more than linear time.
 TEXT_RULES = [
@@ -75,6 +84,7 @@ TEXT_RULES = [
         r"\b(cat|read|type|get-content|copy|cp|scp|upload|send|curl|post)\b[^\n]{0,40}"
         r"(\.ssh[/\\]|id_rsa|id_ed25519|\.aws[/\\]credentials|\.npmrc|\.netrc|\.env\b|credentials\.json|\.git-credentials)", _I),
      "reads or sends credential files"),
+    ("SEC-01", "high", _ALL, SEC_01, "embedded credential: rotate it and do not install"),
     ("NET-01", "medium", _ALL, re.compile(
         r"https?://[^\s'\"<>)]{1,200}\.(exe|msi|dll|ps1|sh|bat|cmd|zip|tar\.gz|tgz|whl|jar|dmg|pkg|deb|rpm)\b", _I),
      "downloads an executable or archive"),
@@ -237,8 +247,14 @@ def _chunks(line: str):
 
 
 def _window(text: str, start: int, end: int) -> str:
+    """The snippet around a match. Every credential that overlaps it is replaced, also one cut by the window's
+    edge, so a finding of any rule cannot repeat a key found on the same line."""
     low = max(0, start - 40) if start > 100 else 0
-    return sanitize(text[low:end + 100], 140)
+    high = end + 100
+    piece = text[low:high]
+    for match in reversed([m for m in SEC_01.finditer(text) if m.end() > low and m.start() < high]):
+        piece = piece[:max(match.start(), low) - low] + REDACTED + piece[min(match.end(), high) - low:]
+    return sanitize(piece, 140)
 
 
 def _line_starts(text: str):
@@ -324,7 +340,7 @@ def vet_path(root: str, max_per_rule: int = 20) -> dict:
                 scripts = {}
             for key in LIFECYCLE:
                 if isinstance(scripts, dict) and scripts.get(key):
-                    add("INST-01", "medium", rel, 1, sanitize("%s: %s" % (key, scripts[key]), 140),
+                    add("INST-01", "medium", rel, 1, sanitize(SEC_01.sub(REDACTED, "%s: %s" % (key, scripts[key])), 140),
                         "package lifecycle script runs during install")
         if scopes & {"skill", "hook", "agent"}:
             for rule, number, column, char in _unicode_kinds(text):
