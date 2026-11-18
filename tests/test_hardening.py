@@ -190,10 +190,11 @@ class OutputSanitizingTests(unittest.TestCase):
             "id": "c1", "topic": "t", "relation": "alternatives", "policy": "compose", "members": ["*"], "guidance": "g"}]}))
 
     def test_find_text_and_json(self):
-        _code, out, _err = run_main("find", "deploy", "--registry", self.reg)
+        # both entries contain the word, so it carries no rank information: --min-score 0 shows them anyway
+        _code, out, _err = run_main("find", "deploy", "--registry", self.reg, "--min-score", "0")
         self.assertIn("deploy helper", out)
         self.assertNoRaw(out)
-        _code, out, _err = run_main("find", "deploy", "--registry", self.reg, "--json")
+        _code, out, _err = run_main("find", "deploy", "--registry", self.reg, "--json", "--min-score", "0")
         self.assertJsonClean(out)
         self.assertNoRaw(out)
         self.assertTrue(json.loads(out)["results"])
@@ -753,10 +754,10 @@ class CliExitCodeTests(unittest.TestCase):
             write(tmp, "skills/a/SKILL.md", "---\nname: a\ndescription: knowledge graph of notes\n---\n")
             reg = os.path.join(tmp, "reg.json")
             run_main("scan", "--root", os.path.join(tmp, "skills") + "::s", "--catalog", catalog, "--out", reg)
-            _code, out, _err = run_main("find", "knowledge graph", "--registry", reg)
-            self.assertIn("(tool)", out)
-            self.assertIn("upstream: https://example.org/graphify", out)
-            self.assertIn("(skill)", out)
+            _code, out, _err = run_main("find", "knowledge graph", "--registry", reg, "--min-score", "0")
+            self.assertIn(" TOOL tool", out)
+            self.assertIn("run (see its docs): https://example.org/graphify", out)
+            self.assertIn(" SKILL cold", out)
 
 
 class LauncherTests(unittest.TestCase):

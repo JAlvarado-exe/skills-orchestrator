@@ -56,6 +56,15 @@ EXEC_02 = re.compile(
     r"(\beval\s*[(\$\"'`]|\bexec\s*\(|\bos\.system\s*\(|\bos\.popen\s*\(|\bsubprocess\.Popen\s*\(|\bnew\s+Function\s*\("
     r"|shell\s*=\s*True|\bchild_process\b|\bexecSync\s*\(|\bInvoke-Expression\b)", _I)
 
+SEC_01 = re.compile(
+    r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----"
+    r"|\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}\b|\bgithub_pat_[A-Za-z0-9_]{50,}"
+    r"|\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{32,}"
+    r"|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"
+    r"|\bxox[abposr]-[A-Za-z0-9-]{10,}"
+    r"|\bAIza[0-9A-Za-z_-]{35}\b")
+REDACTED = "[REDACTED]"  # no snippet of any rule repeats a value SEC_01 matches
+
 _ALL = ("skill", "hook", "install", "agent")
 # (rule id, severity, scopes, regex, message). Every gap is bounded so a hostile line cannot cost more than linear time.
 TEXT_RULES = [
@@ -75,6 +84,7 @@ TEXT_RULES = [
         r"\b(cat|read|type|get-content|copy|cp|scp|upload|send|curl|post)\b[^\n]{0,40}"
         r"(\.ssh[/\\]|id_rsa|id_ed25519|\.aws[/\\]credentials|\.npmrc|\.netrc|\.env\b|credentials\.json|\.git-credentials)", _I),
      "reads or sends credential files"),
+    ("SEC-01", "high", _ALL, SEC_01, "embedded credential: rotate it and do not install"),
     ("NET-01", "medium", _ALL, re.compile(
         r"https?://[^\s'\"<>)]{1,200}\.(exe|msi|dll|ps1|sh|bat|cmd|zip|tar\.gz|tgz|whl|jar|dmg|pkg|deb|rpm)\b", _I),
      "downloads an executable or archive"),
@@ -82,7 +92,7 @@ TEXT_RULES = [
 WHOLE_TEXT_RULES = frozenset({"INJ-01"})  # matched on the whole file so a phrase may span lines
 LIFECYCLE = ("preinstall", "install", "postinstall", "prepare", "prepublish", "preuninstall", "postuninstall")
 RESTRICTIVE = ("elastic license", "business source license", "server side public", "affero", "gnu general public",
-               "commons clause", "polyform")
+               "commons clause", "polyform", "functional source license", "fair source")
 PERMISSIVE = ("mit license", "apache license", "bsd", "isc license", "unlicense", "cc0", "permission is hereby granted")
 INSTALLER_EXT = (".sh", ".bash", ".ps1", ".bat", ".cmd", ".py", ".js", ".mjs", ".cjs")
 CODE_EXT = (".sh", ".bash", ".ps1", ".bat", ".cmd", ".py", ".js", ".mjs", ".cjs", ".ts", ".json", ".yaml", ".yml", ".toml")
@@ -97,14 +107,14 @@ EMOJI_PARTS = {0x200D, 0xFE0F}
 
 
 def _read_file(path: str, lowered: str):
-    """Return (text, issue). issue is None, "big", "nul" or "skip". text is None when the file is not scanned."""
+    """Distinguish incomplete coverage from an intentional binary or special-file skip."""
     try:
         if not stat.S_ISREG(os.stat(path).st_mode):
             return None, "skip"
         with open(path, "rb") as handle:
             raw = handle.read(MAX_FILE_BYTES + 1)
     except OSError:
-        return None, "skip"
+        return None, "unreadable"
     texty = lowered == "skill.md" or lowered.endswith(TEXT_EXT)
     binary = b"\x00" in raw[:4096]
     if len(raw) > MAX_FILE_BYTES:
@@ -195,7 +205,11 @@ def _scopes(rel_parts, name, skill_dirs, root, dirpath, path, hook_targets):
 
 
 def detect_license(root: str):
-    for name in sorted(os.listdir(root)):
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:
+        return {"file": None, "kind": "unknown"}
+    for name in names:
         if re.match(r"^(licen[sc]e|copying|unlicense)", name, _I) and os.path.isfile(os.path.join(root, name)):
             head = (_is_text(os.path.join(root, name)) or "")[:3000].lower()
             if any(marker in head for marker in RESTRICTIVE):
@@ -237,8 +251,14 @@ def _chunks(line: str):
 
 
 def _window(text: str, start: int, end: int) -> str:
+    """The snippet around a match. Every credential that overlaps it is replaced, also one cut by the window's
+    edge, so a finding of any rule cannot repeat a key found on the same line."""
     low = max(0, start - 40) if start > 100 else 0
-    return sanitize(text[low:end + 100], 140)
+    high = end + 100
+    piece = text[low:high]
+    for match in reversed([m for m in SEC_01.finditer(text) if m.end() > low and m.start() < high]):
+        piece = piece[:max(match.start(), low) - low] + REDACTED + piece[min(match.end(), high) - low:]
+    return sanitize(piece, 140)
 
 
 def _line_starts(text: str):
@@ -276,7 +296,8 @@ def vet_path(root: str, max_per_rule: int = 20) -> dict:
     root = os.path.abspath(root)
     files = []
     skill_dirs = set()
-    for dirpath, dirs, names in os.walk(root):
+    walk_errors = []
+    for dirpath, dirs, names in os.walk(root, onerror=walk_errors.append):
         dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
         if "SKILL.md" in names:
             skill_dirs.add(dirpath)
@@ -296,6 +317,10 @@ def vet_path(root: str, max_per_rule: int = 20) -> dict:
         findings.append({"rule": rule, "severity": severity, "file": rel, "line": line,
                          "snippet": snippet() if callable(snippet) else snippet, "msg": msg})
 
+    coverage = {"scanned_files": 0, "unreadable_directories": len(walk_errors), "unreadable_files": 0,
+                "oversized_files": 0, "binary_or_special_files": 0}
+    for error in walk_errors:
+        add("SKIP-03", "high", os.path.relpath(error.filename or root, root), 0, "", "directory could not be read")
     for dirpath, name in files:
         path = os.path.join(dirpath, name)
         rel = os.path.relpath(path, root)
@@ -312,11 +337,18 @@ def vet_path(root: str, max_per_rule: int = 20) -> dict:
             add("INST-02", "medium", rel, 1, "", "installer script: read it before running")
         text, issue = _read_file(path, lowered)
         if issue == "big":
+            coverage["oversized_files"] += 1
             add("SKIP-01", "high", rel, 1, "", "file not scanned: larger than 1 MB")
+        elif issue == "unreadable":
+            coverage["unreadable_files"] += 1
+            add("SKIP-03", "high", rel, 1, "", "file could not be read")
+        elif issue == "skip":
+            coverage["binary_or_special_files"] += 1
         elif issue == "nul":
             add("SKIP-02", "medium", rel, 1, "", "NUL bytes in a text file: scanned with the NUL bytes removed")
         if text is None:
             continue
+        coverage["scanned_files"] += 1
         if lowered == "package.json":
             try:
                 scripts = json.loads(text.lstrip("\ufeff")).get("scripts", {})
@@ -324,7 +356,7 @@ def vet_path(root: str, max_per_rule: int = 20) -> dict:
                 scripts = {}
             for key in LIFECYCLE:
                 if isinstance(scripts, dict) and scripts.get(key):
-                    add("INST-01", "medium", rel, 1, sanitize("%s: %s" % (key, scripts[key]), 140),
+                    add("INST-01", "medium", rel, 1, sanitize(SEC_01.sub(REDACTED, "%s: %s" % (key, scripts[key])), 140),
                         "package lifecycle script runs during install")
         if scopes & {"skill", "hook", "agent"}:
             for rule, number, column, char in _unicode_kinds(text):
@@ -359,18 +391,21 @@ def vet_path(root: str, max_per_rule: int = 20) -> dict:
     elif license_info["kind"] == "restrictive":
         add("LIC-02", "low", license_info["file"], 1, "", "restrictive or copyleft license: do not redistribute inside another project")
     elif license_info["kind"] == "unknown":
-        add("LIC-03", "info", license_info["file"], 1, "", "license text not recognized: read it")
+        add("LIC-03", "info", license_info["file"] or ".", 1, "", "license could not be identified")
 
     rank = {s: i for i, s in enumerate(SEVERITIES)}
     findings.sort(key=lambda f: (rank[f["severity"]], f["rule"], f["file"], f["line"]))
     summary = {s: sum(1 for f in findings if f["severity"] == s) + sum(
         suppressed.get(rule, 0) for rule, sev in _rule_severity().items() if sev == s) for s in SEVERITIES}
     summary["total"] = sum(summary[s] for s in SEVERITIES)
-    return {"root": root, "license": license_info, "summary": summary, "suppressed": suppressed, "findings": findings}
+    coverage["complete"] = not (walk_errors or coverage["unreadable_files"] or coverage["oversized_files"])
+    return {"root": root, "license": license_info, "summary": summary, "suppressed": suppressed,
+            "coverage": coverage, "findings": findings}
 
 
 def _rule_severity():
     table = {rule: sev for rule, sev, _scopes, _rx, _m in TEXT_RULES}
     table.update({"UNI-01": "high", "UNI-02": "high", "INST-01": "medium", "INST-02": "medium", "HOOK-01": "medium",
-                  "MCP-01": "info", "LIC-01": "low", "LIC-02": "low", "LIC-03": "info", "SKIP-01": "high", "SKIP-02": "medium"})
+                  "MCP-01": "info", "LIC-01": "low", "LIC-02": "low", "LIC-03": "info", "SKIP-01": "high",
+                  "SKIP-02": "medium", "SKIP-03": "high"})
     return table

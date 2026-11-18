@@ -6,6 +6,99 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-18
+
+This release adds local methodology guides with explicit phase prerequisites, multilingual vocabulary for discovery,
+and separate labels for skills, workflows and documented tools. Search preserves evidence from the selected copy.
+The hook keeps compatible project snapshots and records only suggestions that fit in its output. Concurrent state
+updates use local filesystem locks. The wheel now ships the built-in profiles. See the README for a runnable demo.
+
+### Added
+
+- `vet` rule SEC-01 (high): an embedded credential in a skill, hook, installer or agent file (private key block,
+  GitHub, OpenAI or Anthropic style, AWS access key id, Slack and Google API key shapes). The finding's snippet shows
+  `[REDACTED]` instead of the value. Prose that only talks about keys is not flagged.
+
+## [0.2.0] - 2026-11-16
+
+Retrieval v2: the hook stays silent unless it has something relevant, and what it shows is right more often. On the
+40 shipped evaluation cases precision at 3 went from 0.389 to 0.961 and the must-be-silent cases from 0/10 to 10/10
+(see docs/EVAL.md for the method and its limits).
+
+### Added
+
+- `eval FILE`: runs a JSON file of cases through the hook's selection and prints precision at 3, hit at 3, silence and
+  forbidden ids. 40 frozen cases (16 Spanish, 10 must be silent) and a synthetic corpus in `tests/fixtures/eval/`.
+- Confidence gates: a normalized score threshold (`min_score`, `--min-score`), a minimum of distinct shared terms that
+  grows for long requests (`min_terms`) and a relative floor. `find` prints the single line `NO CONFIDENT MATCH` when
+  nothing passes; the hook prints nothing.
+- Hook input filter: blocks of wrapper tags the harness writes (task notifications, which also carry background
+  agents' reports; system reminders; local command echoes; CI monitor events) and listed prefixes are ignored, from
+  `orchestrator/data/hook_skip.json` plus the config key `hook_skip_tags`; `hook_min_chars` sets the minimum length.
+- Policy: `blocked` and `preferred` patterns (ids, sources, globs) in the config and in a per-project
+  `.skills-orchestrator.json`. Blocked entries never appear in `find`, `list`, `eval` or the hook unless `--all`.
+- Copy groups: registry entries that are copies of one skill (same normalized text, or same name and at least 90%
+  equal text) are shown once, as the best-placed copy, with `(+N copies)`.
+- Session memory in the hook: an id shown twice in a session and not used is not shown again in that session.
+- `used <id> [--helped yes|no]` and `stats`: a local usage log, and a bounded order factor from helpful uses and from
+  being shown often but never used.
+- Intent detection from a keyword table (`orchestrator/data/intents.json`): build, review, debug, research, write,
+  decide, operate. The matching profile is ranked higher, never used as a filter; the intent is printed.
+- Results are labeled `SKILL` or `TOOL`. A timing test keeps the hook's selection under 150 ms on 1,000 entries.
+- A test that keeps the Precedence, Never and "Adding a skill or tool" sections of SKILL.md unchanged.
+- Translations for "respalda" and "respaldas" (back up), so a Spanish backup request is no longer silenced, and for
+  "ingenieria inversa", "ia", "suena", "sonar", "cavernicola" and "corta".
+- The term gate counts evidence per typed word (`query_units`): a Spanish word with two English translations is one
+  piece of evidence, synonyms still count, and each word of the skill backs one typed word only.
+
+### Changed
+
+- Ranking is BM25F over name (weight 3), tags (2) and body (1), with `k1` 1.2. Tags from `overrides.json` are their own
+  field instead of being appended to `when_to_use`.
+- Stopwords are data: `stopwords_en` (function words plus generic task words such as "code", "file", "run", "build")
+  and the Spanish `stopwords`, which gained generic request words.
+- Registry format version 2: stored tokens (`tok`), `norm_sha`, `dup_group` and a `tokenizer` fingerprint. Older
+  registries are upgraded in memory and rebuilt by the automatic refresh.
+- The hook shows at most 3 results by default (`hook_top`), each with its path, and no longer lists name matches.
+- `WEAK MATCH` is gone: the gates replace it. SKILL.md's Coverage rule now refers to `NO CONFIDENT MATCH` and asks the
+  agent to run `used` after applying a skill.
+- Tests that asserted the old behavior (always five results, the `WEAK MATCH` line, a block with zero results, "build"
+  as a search word) were updated to the requested behavior; tests of other features that searched with a word every
+  entry shares now pass `--min-score 0`.
+
+### Earlier unreleased work included in this version
+
+- Eight conflict clusters (agent memory, voice, social publishing, anti-slop writing, marketing, output approval, agent security, trading) and a broader `web-access` cluster that bans bot-detection evasion. Social publishing, output approval and trading are owner-pinned.
+- Spanish and English vocabulary for voice, transcription, scraping, social media, drafts and approvals, domains and brand names, trading and anti-slop; cold-skill recall tests.
+- Extended `business`, `docs` and `research` profiles.
+- `vet` recognizes the Functional Source License as a restrictive license (LIC-02).
+
+## [0.1.2] - 2026-10-11
+
+Automatic search: an optional hook runs the skill search on every user message, so finding a skill no longer depends on the model remembering to call `find`.
+
+### Added
+
+- `hook-prompt` command and `orchestrator/hook.py`. It reads a `UserPromptSubmit` JSON payload on stdin, searches the registry with the message and prints `{"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": ...}}`. The block (at most 1,200 characters) lists up to 5 results with state and matched terms, a path for the first 3, name matches, the `WEAK MATCH` line when the `find` weak rule applies, and a fixed line pointing to the Coverage rule. It holds only sanitized ids, paths and matched terms, never descriptions. Optional flags: `--config`, `--registry`, `--top`.
+- Skip rules: messages under 8 characters, slash commands, fewer than two query terms, and the `SKILLS_ORCHESTRATOR_HOOK` switch (`0`, `off` or `false`).
+- The hook uses the payload's `cwd` for the project skill folders, prints nothing on stdout except the final JSON, and always exits 0. Any failure is swallowed and logged as one line to `hook.log` next to the registry (`SKILLS_ORCHESTRATOR_HOOK_LOG` overrides the path).
+- README section "Automatic hook (optional)", an architecture section and a threat table about the trust of hook context in `docs/SECURITY.md`.
+- Orchestrator skill: a paragraph under "Two sources, every time" that tells the agent what a `[skills-orchestrator]` block is and that the Coverage rule still applies.
+- 40 new unit tests in `tests/test_hook.py` (300 in total), including subprocess tests of the exit code and UTF-8 stdin handling.
+
+### Changed
+
+- `ensure_registry` and `_is_current` accept an optional `cwd` (default: the process folder), so the hook can search the project of the payload.
+- `main` returns 0 when `hook-prompt` receives a bad flag (the usage text still goes to stderr), because a non-zero status can block the user's message.
+- `SKILL.md` stays at 110 lines: the "Two sources, every time" paragraph was rewrapped to make room.
+- Version assertions in `tests/test_discovery.py` now expect 0.1.2.
+
+### Known limitations
+
+- The hook cannot see skills a host injects, and the search is lexical like `find`.
+- The output format follows the Claude Code hook format; it was exercised here with synthetic payloads, not inside a live session, and other agents were not tested.
+- If the command path is wrong or the package cannot be imported, `run.py` exits with status 2, which some agents treat as blocking the message.
+
 ## [0.1.1] - 2026-10-11
 
 Guaranteed discovery: the tool can search every skill the user has, in any project and in two languages, and a weak result is never mistaken for "no skill".
@@ -86,6 +179,8 @@ Found by an adversarial review before the first release; each item has a regress
 - `est_tokens` is a characters-divided-by-4 estimate.
 - `tune` (usage-driven suggestions) is planned for v0.2 and is not implemented.
 
-[Unreleased]: https://github.com/JAlvarado-exe/skills-orchestrator/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/JAlvarado-exe/skills-orchestrator/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/JAlvarado-exe/skills-orchestrator/compare/v0.1.2...v0.2.0
+[0.1.2]: https://github.com/JAlvarado-exe/skills-orchestrator/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/JAlvarado-exe/skills-orchestrator/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/JAlvarado-exe/skills-orchestrator/releases/tag/v0.1.0

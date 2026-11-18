@@ -1,0 +1,6 @@
+{
+  "registry": ".skills-orchestrator/registry.json",
+  "catalogs": ["catalog.json"],
+  "use_platform_roots": false,
+  "use_cwd_project_roots": false
+}

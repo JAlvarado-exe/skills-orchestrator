@@ -12,7 +12,7 @@ All numbers are the author's own measurements on small samples. "Hit" means at l
 | Author's registry, tuning set | About 150 shipped skills | 20 | 70% to 85% top-3 (14/20 to 17/20) | Gain after adding stemming and synonyms. The set was used to choose them, so it overstates general recall |
 | Author's registry, held-out set | Same registry | 12 | 92% (11/12), unchanged | Written beforehand and not used for tuning. No improvement |
 
-What the held-out result says: the changes did not hurt it and did not help it. Known misses are paraphrases that share no words with the skill's name, description or `when_to_use`. Treat `find` scores as keyword ranks, never as certainty. The orchestrator skill tells the agent to continue without a skill when the best score is weak.
+What the held-out result says: the changes did not hurt it and did not help it. Known misses are paraphrases that share no words with the skill's name, description or `when_to_use`. Treat `find` scores as keyword ranks, never as certainty. Since 0.2.0 `find` and the hook show only results that pass confidence gates; see [EVAL.md](EVAL.md) for how they were chosen and measured.
 
 ## Tuning search
 

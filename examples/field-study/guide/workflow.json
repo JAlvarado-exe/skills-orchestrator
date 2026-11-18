@@ -1,0 +1,6 @@
+{
+  "phases": [
+    {"id": "observe", "instructions": "observe.md"},
+    {"id": "review", "instructions": "review.md", "requires": ["observe"], "requires_approval": true}
+  ]
+}

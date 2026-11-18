@@ -16,12 +16,13 @@ Be careful reading the table: **only Claude Code was observed live.** CI does no
 | `gemini` | Gemini CLI | documented-only | `~/.gemini/skills` | Project folders `.gemini/skills`, `.agents/skills` |
 | `opencode` | OpenCode | documented-only | none | Project folders `.opencode/skills`, `.agents/skills`, `.claude/skills`; the data notes it also reads `~/.agents/skills` and `~/.claude/skills` |
 | `windsurf` | Windsurf | documented-only | none | No skills folder, only `.windsurfrules`; the data says to paste or reference skills from there |
+| `antigravity` | Google Antigravity | documented-only | `~/.gemini/config/skills`, `~/.gemini/antigravity-cli/skills`, legacy `~/.gemini/antigravity/skills` | Project folder `.agents/skills`. Cross-surface roots were checked against the [official guide](https://antigravity.google/docs/skills). |
 
 Status meanings (from the file itself):
 
 - `verified-live`: the platform was observed listing skills from these roots.
 - `present`: the folder exists on the author's machine, but loading was not verified.
-- `documented-only`: taken from a third-party repository setup guide, not tested here.
+- `documented-only`: described by a published source. Host loading and invocation still need live verification.
 
 The paths for `documented-only` platforms may be wrong or out of date. If you use one of them, please verify and report (see below).
 

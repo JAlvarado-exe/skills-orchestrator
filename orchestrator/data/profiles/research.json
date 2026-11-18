@@ -1,14 +1,22 @@
 {
     "name":  "research",
-    "description":  "Reading the web and large bodies of material, mapping codebases and documents.",
+    "description":  "Reading the web and large bodies of material, mapping codebases and documents, and researching domains, brands and competitors.",
     "include":  [
-                    "*/deep-research",
-                    "*/moli-*",
-                    "*/graphify",
-                    "*/idea-refine",
-                    "*/interview-me",
-                    "*/source-driven-development",
-                    "*/context-mode",
-                    "*/ctx-*"
-                ]
+        "*/deep-research",
+        "*/moli-*",
+        "*/graphify",
+        "*/idea-refine",
+        "*/interview-me",
+        "*/source-driven-development",
+        "*/context-mode",
+        "*/ctx-*",
+        "*/scrapling-official",
+        "*/founder-brand",
+        "*/competitor-analysis",
+        "*/competitive-landscape",
+        "*/keyword-research",
+        "*/earshot",
+        "*/real-sound",
+        "*/para-memory-files"
+    ]
 }

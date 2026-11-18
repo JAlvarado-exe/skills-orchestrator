@@ -17,7 +17,7 @@ Consulted on 2026-10-11. These tools change quickly; check the linked pages for 
 | Main job | Manage what the host lists | Install and manage packages across agents | Inject likely skills per prompt | Index, search, arbitrate and vet a cold library |
 | Platforms | Claude Code | Many agents | As described by its documentation | Any agent that can read files and run Python; only Claude Code was observed live (see [ADAPTERS.md](ADAPTERS.md)) |
 | Skills the model can search | Those the host still lists | Not its purpose | Skills in its local index | Everything in the registry, by an explicit `find` call |
-| Conflict handling | Not its purpose | Not its purpose | Not described here | 12 curated clusters with three policies ([CONFLICTS.md](CONFLICTS.md)) |
+| Conflict handling | Not its purpose | Not its purpose | Not described here | 20 curated clusters with three policies ([CONFLICTS.md](CONFLICTS.md)) |
 | Safety scan of new skills | Not its purpose | Not described here | Not described here | `vet` ([SECURITY.md](SECURITY.md)) |
 | Mechanism | Host controls | Package manager | Hook that injects text | The model calls `find` and reads the file by path |
 

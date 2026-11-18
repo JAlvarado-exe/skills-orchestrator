@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "note": "Messages that reach the prompt hook but were not typed by the user. Whole <tag>...</tag> blocks of these tags are removed before the search; if nothing of the user's own is left, the hook prints nothing. Prefixes mark harness messages that carry no request. Add a tag only with evidence of it in real transcripts; users can add more with hook_skip_tags in their config.",
+  "tags": [
+    "task-notification",
+    "system-reminder",
+    "local-command-caveat",
+    "local-command-stdout",
+    "local-command-stderr",
+    "command-name",
+    "command-message",
+    "command-args",
+    "ci-monitor-event"
+  ],
+  "prefixes": [
+    "[Request interrupted by user",
+    "Base directory for this skill:",
+    "This session is being continued from a previous conversation"
+  ]
+}

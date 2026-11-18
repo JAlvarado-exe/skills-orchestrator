@@ -1,13 +1,21 @@
 {
     "name":  "docs",
-    "description":  "Writing and diagrams: documentation, architecture decision records, diagrams, outbound prose.",
+    "description":  "Writing, design and diagrams: documentation, architecture decision records, anti-slop copy and layout, presentations and outbound prose.",
     "include":  [
-                    "*/documentation-and-adrs",
-                    "*/diagram-design",
-                    "*/humanizer",
-                    "*/writing-*",
-                    "*/copywriting",
-                    "*/handoff",
-                    "*/to-spec"
-                ]
+        "*/documentation-and-adrs",
+        "*/diagram-design",
+        "*/humanizer",
+        "*/writing-*",
+        "*/copywriting",
+        "*/handoff",
+        "*/to-spec",
+        "*/antislop",
+        "*/antislop-copywriting",
+        "*/antislop-human",
+        "*/antislop-ui",
+        "*/antislop-layoutmobile",
+        "*/frontend-design",
+        "*/design-critique",
+        "*/wireframe"
+    ]
 }

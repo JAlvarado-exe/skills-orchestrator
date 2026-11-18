@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+import difflib
 import hashlib
 import json
 import math
@@ -11,6 +12,7 @@ import sys
 
 from .jsonio import read_json
 from .sanitize import sanitize
+from .search import tokenize, tokenizer_id
 from .skillfile import read_skill
 
 EXCLUDE_DIRS = {"node_modules", ".git", "__pycache__", ".venv", "venv", ".trash"}
@@ -20,6 +22,10 @@ SKILL_FILE = "SKILL.md"
 DESCRIPTION_STORE_LIMIT = 4000
 SOURCE_LIMIT = 100
 LISTING_DESC_LIMIT = 1536  # per-entry cap Claude Code applies to description + when_to_use
+REGISTRY_VERSION = 2
+NEAR_COPY_RATIO = 0.90    # same name and at least this share of equal text: an old or edited copy of one skill
+COPY_CACHE_VERSION = 1
+MAX_COPY_DECISIONS = 4096
 
 
 def _inside(real_root: str, real: str) -> bool:
@@ -121,6 +127,13 @@ def catalog_entries(path: str):
         if not isinstance(item, dict):
             print("warning: catalog item %d is not an object: skipped" % index, file=sys.stderr)
             continue
+        if item.get("kind") == "workflow":
+            from .workflows import catalog_workflow
+            try:
+                entries.append(catalog_workflow(path, item))
+            except (OSError, ValueError, RuntimeError):
+                print("warning: invalid local workflow at catalog item %d: skipped" % index, file=sys.stderr)
+            continue
         if item.get("kind") not in ("cli", "mcp", "hook", "gateway"):
             continue
         name = item.get("name")
@@ -133,10 +146,11 @@ def catalog_entries(path: str):
             "id": "catalog/" + slug, "name": name, "source": "catalog", "sources": ["catalog"], "platforms": [],
             "hot": False, "hot_platforms": [], "internal": False, "kind": "tool",
             "description": (_text(item.get("what")) + " " + _text(item.get("impact")))[:DESCRIPTION_STORE_LIMIT],
-            "when_to_use": _text(item.get("activation"))[:DESCRIPTION_STORE_LIMIT],
+            "when_to_use": _text(item.get("activation"))[:DESCRIPTION_STORE_LIMIT], "availability": "documented-only",
             "path": upstream, "upstream": upstream, "paths": [], "variants": [],
             "sha256": hashlib.sha256(json.dumps(item, sort_keys=True).encode("utf-8", "replace")).hexdigest(), "bytes": 0,
             "frontmatter_ok": True, "listed": False, "est_tokens": 0, "rating": item.get("rating"), "risk": item.get("risk"),
+            "dup_group": "catalog/" + slug,
         })
     return sorted(entries, key=lambda e: e["id"])
 
@@ -155,7 +169,7 @@ def _rank_key(item):
     return (item["internal"], item["depth"], -mtime, item["path"])
 
 
-def build_registry(root_specs):
+def build_registry(root_specs, previous=None):
     """Build the registry.
 
     Identical file content is one entry with several paths. Different content under the same
@@ -187,6 +201,9 @@ def build_registry(root_specs):
         occurrences = by_real[real]
         spec, root, skill_dir = occurrences[0]
         source = _source_for(spec, root, skill_dir)
+        origins = [{"path": real, "source": _source_for(s, r, d), "platform": s.get("platform"),
+                    "hot": bool(s.get("hot")), "internal": _is_internal(s, r, d), "sha256": info["sha256"]}
+                   for s, r, d in occurrences]
         platforms = sorted({s.get("platform") for s, _r, _d in occurrences if s.get("platform")})
         hot_platforms = sorted({s.get("platform") or "unknown" for s, _r, _d in occurrences if s.get("hot")})
         internal = all(_is_internal(s, r, d) for s, r, d in occurrences)
@@ -195,10 +212,11 @@ def build_registry(root_specs):
         if record is None:
             by_sha[info["sha256"]] = {
                 "info": info, "source": source, "sources": [source], "platforms": platforms, "hot_platforms": hot_platforms,
-                "internal": internal, "depth": depth, "path": real, "paths": [real],
+                "internal": internal, "depth": depth, "path": real, "paths": [real], "origins": origins,
             }
         else:
             record["paths"].append(real)
+            record["origins"].extend(origins)
             if source not in record["sources"]:
                 record["sources"].append(source)
             record["platforms"] = sorted(set(record["platforms"]) | set(platforms))
@@ -213,6 +231,7 @@ def build_registry(root_specs):
         groups.setdefault((record["source"], record["info"]["name"]), []).append(record)
 
     entries = []
+    normalized = {}
     for (source, name), members in groups.items():
         members.sort(key=_rank_key)
         primary, others = members[0], members[1:]
@@ -232,41 +251,189 @@ def build_registry(root_specs):
             "path": primary["path"],
             "paths": sorted(primary["paths"]),
             "variants": [{"sha256": m["info"]["sha256"], "paths": sorted(m["paths"])} for m in others],
+            "origins": [origin for m in members for origin in m["origins"]],
             "sha256": info["sha256"],
             "bytes": info["bytes"],
             "frontmatter_ok": info["frontmatter_ok"],
             "listed": info["listed"],
+            "auto_eligible": info["listed"],
+            "norm_sha": info["norm_sha256"],
         }
+        normalized[entry["id"]] = info["normalized"]
         if info.get("truncated"):
             entry["truncated"] = True
         entry["est_tokens"] = estimate_tokens(name, entry["description"], entry["when_to_use"]) if info["listed"] else 0
         entries.append(entry)
     entries.sort(key=lambda e: e["id"])
+    cache = (previous or {}).get("copy_cache", {})
+    decisions = cache.get("pairs") if isinstance(cache, dict) and cache.get("version") == COPY_CACHE_VERSION else None
+    pairs = assign_dup_groups(entries, normalized, decisions if isinstance(decisions, dict) else {})
+    for entry in entries:
+        entry["tok"] = entry_tokens(entry)
     return {
-        "version": 1,
+        "version": REGISTRY_VERSION,
+        "tokenizer": tokenizer_id(),
         "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "roots": root_report,
         "missing_roots": missing,
         "files": len(by_real),
         "errors": errors,
         "entries": entries,
+        "copy_cache": {"version": COPY_CACHE_VERSION, "pairs": pairs},
     }
+
+
+def entry_tokens(entry: dict) -> dict:
+    """Name and body tokens stored in the registry so a search does not tokenize every description again."""
+    return {"name": tokenize(entry.get("name", "")),
+            "body": tokenize(entry.get("description", "") + " " + entry.get("when_to_use", ""))}
+
+
+class _CopyMatcher(difflib.SequenceMatcher):
+    """Use large exact blocks to accelerate difflib's no-junk comparison of edited prose."""
+
+    def find_longest_match(self, alo=0, ahi=None, blo=0, bhi=None):
+        a, b = self.a, self.b
+        ahi = len(a) if ahi is None else ahi
+        bhi = len(b) if bhi is None else bhi
+        if min(ahi - alo, bhi - blo) >= 1024:
+            # Every match of length >= 2*step contains an entire aligned step-sized slice
+            # of a. Expand all occurrences in b, preserving difflib's earliest-position ties.
+            step = max(32, (ahi - alo) // 32)
+            best = difflib.Match(alo, blo, 0)
+            probes = 0
+            for i in range(alo, ahi - step + 1, step):
+                word = a[i:i + step]
+                j = b.find(word, blo, bhi)
+                while j >= 0:
+                    probes += 1
+                    if probes > 128:
+                        break
+                    if not (best.a <= i < best.a + best.size and i - best.a == j - best.b):
+                        start, other, size = i, j, step
+                        while start > alo and other > blo and a[start - 1] == b[other - 1]:
+                            start -= 1
+                            other -= 1
+                            size += 1
+                        while start + size < ahi and other + size < bhi and a[start + size] == b[other + size]:
+                            size += 1
+                        if size > best.size or (size == best.size and (start, other) < (best.a, best.b)):
+                            best = difflib.Match(start, other, size)
+                    j = b.find(word, j + 1, bhi)
+                if probes > 128:
+                    break
+            if probes <= 128 and best.size >= 2 * step:
+                return best
+        return super().find_longest_match(alo, ahi, blo, bhi)
+
+
+def _near_copy(first: str, second: str) -> bool:
+    total = len(first) + len(second)
+    if not total:
+        return True
+    if 2 * min(len(first), len(second)) / total < NEAR_COPY_RATIO:
+        return False
+    # With autojunk disabled SequenceMatcher always takes a longest common block first.
+    # A single matching edge this long already guarantees its final ratio reaches the gate.
+    required = math.ceil(NEAR_COPY_RATIO * total / 2)
+    if first[:required] == second[:required] or first[-required:] == second[-required:]:
+        return True
+    matcher = _CopyMatcher(None, first, second, autojunk=False)
+    return matcher.quick_ratio() >= NEAR_COPY_RATIO and matcher.ratio() >= NEAR_COPY_RATIO
+
+
+def assign_dup_groups(entries, normalized, previous=None):
+    """Give copies of one skill the same ``dup_group``: same normalized text, or same name and at least
+    NEAR_COPY_RATIO equal text, measured character by character (old versions and lightly edited copies)."""
+    parent = {e["id"]: e["id"] for e in entries}
+    hashes = {e["id"]: e["norm_sha"] for e in entries}
+    previous = previous or {}
+    pairs = {}
+
+    def find(ident):
+        while parent[ident] != ident:
+            parent[ident] = parent[parent[ident]]
+            ident = parent[ident]
+        return ident
+
+    def join(first, second):
+        a, b = find(first), find(second)
+        if a != b:
+            parent[max(a, b)] = min(a, b)
+
+    by_hash, by_name = {}, {}
+    for entry in entries:
+        by_hash.setdefault(entry.get("norm_sha"), []).append(entry["id"])
+        by_name.setdefault(entry["name"].lower(), []).append(entry["id"])
+    for ids in by_hash.values():
+        for other in ids[1:]:
+            join(ids[0], other)
+    for ids in by_name.values():
+        for index, first in enumerate(ids):
+            for second in ids[index + 1:]:
+                if find(first) == find(second):
+                    continue
+                # Keep argument order: difflib tie-breaking is not symmetric.
+                key = hashes[first] + ":" + hashes[second]
+                same = previous.get(key)
+                if not isinstance(same, bool):
+                    same = _near_copy(normalized[first], normalized[second])
+                if len(pairs) < MAX_COPY_DECISIONS:
+                    pairs[key] = same
+                if same:
+                    join(first, second)
+    for entry in entries:
+        entry["dup_group"] = find(entry["id"])
+    return pairs
+
+
+def upgrade_registry(registry: dict) -> dict:
+    """Bring an older registry (or one tokenized with other stopwords) to the current format, in memory."""
+    if not isinstance(registry, dict) or not isinstance(registry.get("entries"), list):
+        return registry
+    current = tokenizer_id()
+    retokenize = registry.get("tokenizer") != current
+    for entry in registry["entries"]:
+        if not isinstance(entry, dict):
+            continue
+        entry.setdefault("norm_sha", entry.get("sha256"))
+        entry.setdefault("dup_group", entry.get("id"))
+        if retokenize or not isinstance(entry.get("tok"), dict):
+            entry["tok"] = entry_tokens(entry)
+    registry["tokenizer"] = current
+    registry["version"] = max(REGISTRY_VERSION, registry.get("version", 1) if isinstance(registry.get("version"), int) else 1)
+    return registry
 
 
 def roots_signature(specs, catalogs=()):
     """Fingerprint of what a registry was built from: root paths (this includes the current project's skill
     folders), catalog files and excluded prefixes. A different cwd or config gives a different signature."""
-    keys = {os.path.normcase(os.path.abspath(spec["path"])) for spec in specs}
-    keys.update("catalog:" + os.path.normcase(os.path.abspath(path)) for path in catalogs)
-    for spec in specs:
-        keys.update("exclude:" + os.path.normcase(os.path.abspath(path)) for path in spec.get("exclude", ()))
-    return sorted(keys)
+    def path_key(path):
+        return os.path.normcase(os.path.abspath(path))
+
+    paths = [path_key(spec["path"]) for spec in specs]
+    # The first root covering a path chooses its canonical source, so preserve order.
+    options = [[path, spec.get("source"), spec.get("source_from", "fixed"), spec.get("platform"),
+                bool(spec.get("hot")), spec_contain(spec), spec.get("detect_internal") is not False,
+                sorted(path_key(p) for p in spec.get("exclude", ()))]
+               for path, spec in zip(paths, specs)]
+    files = []
+    for path in catalogs:
+        try:
+            info = os.stat(path)
+            stamp = [info.st_size, info.st_mtime_ns, info.st_ctime_ns]
+        except OSError:
+            stamp = None
+        files.append([path_key(path), stamp])
+    digest = hashlib.sha256(json.dumps([options, files], ensure_ascii=True).encode("ascii")).hexdigest()
+    return paths + ["inputs:" + digest]
 
 
-def make_registry(specs, catalogs=(), built_with: str = "explicit"):
+def make_registry(specs, catalogs=(), built_with: str = "explicit", previous=None):
     """build_registry plus catalog tool entries, the roots signature and how the registry was built ("config"|"explicit")."""
     catalogs = list(dict.fromkeys(catalogs))
-    registry = build_registry(specs)
+    specs = list(specs)
+    registry = build_registry(specs, previous)
     for path in catalogs:
         try:
             extra = catalog_entries(path)

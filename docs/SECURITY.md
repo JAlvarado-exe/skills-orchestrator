@@ -25,6 +25,23 @@ A skill is text that an agent reads and follows, often next to files that a mach
 5. **`vet`**, described below.
 6. **Dual-use gating.** The `reverse` profile and the `reverse-engineering` cluster (policy `owner-pin`) stay off until the user names the target and confirms authorization in the conversation.
 
+## Prompt hook: trust of injected context
+
+`hook-prompt` (see the README) lets an agent run the search on every user message and put the result into the model's context through the host's hook channel. Hosts treat that channel as more trusted than a tool result, so text written by a stranger would carry more weight there than it does in `find` output. The hook is optional and off until the user adds it to their own settings.
+
+| Threat | Mitigation |
+| --- | --- |
+| A hostile description, `when_to_use` text, tag or note is promoted into trusted context | The block never contains them. It holds only sanitized ids, the label (`SKILL`, `TOOL`), the state word (`hot`, `cold`, `tool`), a copy count, the detected intent (a fixed word from `data/intents.json`), matched terms (words of the user's own message after translation) and paths, plus fixed text |
+| A hostile id, name or path carries invisible characters, escape codes or line breaks | Every id (120 characters) and path (300) goes through `sanitize`: invisible, bidirectional and control characters are removed, whitespace is flattened to one line and the text is truncated. The header labels the lines as data, not instructions |
+| An id forges a block line such as a fake header or closing line | Line breaks cannot survive `sanitize`, so every id stays on its own line. A test asserts that each line of the block has one of the known shapes |
+| An id still reads like an instruction | Not fully prevented: the author of a skill chooses its name and folder, and 120 characters can hold a short sentence. The cap and the data label reduce the room; they do not remove it. Vet new skills before they enter the registry |
+| The hook blocks or delays the user's message | It exits 0 for every runtime failure, caps the block at 1,200 characters and writes nothing on stdout but the final JSON. The host's `timeout` setting bounds the run time. A wrong command path (the launcher exits with status 2) is not covered |
+| The hook edits configuration or reaches the network | It does neither: it reads the registry and config, may rewrite the registry through the normal refresh, appends failures to `hook.log`, and writes its state folder (`sessions/<id>.json` with shown ids and counts, `stats.json` with shown counts). It never edits settings files. No prompt text is written anywhere, only ids, counts and times; the log holds the exception type and a message cut to 200 characters |
+| A message the harness wrote (a task notification carrying a subagent's report, a system reminder) is searched as if the user asked for it | Whole blocks of the listed wrapper tags are removed before the search (`data/hook_skip.json`, plus `hook_skip_tags`), so text written by a subagent or by a tool result relayed in a notification never chooses a skill. Only tags seen in real transcripts are listed; a wrapper the list does not know is searched as user text |
+| A session id from the payload is used to write outside the state folder | Only ids of letters, digits, `-` and `_` (at most 80) get a session file; any other id gets no memory |
+| A cloned project promotes its own skill through `.skills-orchestrator.json` | A project file can add `blocked` and `preferred` patterns and change `min_score` and `min_terms`. Preferred results are reordered by a fixed x1.25 and never get past the gates; nothing can remove a pattern the user blocked. A project can lower `min_score`, so in an untrusted checkout check that file like any other config |
+| Usage feedback is poisoned | `usage.jsonl` and `stats.json` are local files written by `used` and the hook. The factor they produce is bounded to plus or minus 30% and reorders results only |
+
 ## What `vet` scans
 
 `vet PATH` walks a cloned repository (skipping `.git`, `node_modules`, `__pycache__`, `.venv`, `venv`) and applies rules to files in four scopes. Every file in scope is either scanned or reported: a file over 1,000,000 bytes produces SKIP-01 and a text file with NUL bytes produces SKIP-02; other binary files (images and similar) are skipped silently.
@@ -49,17 +66,19 @@ It is a scan of what an agent loads or a machine runs. It is **not** an audit of
 | OBF-01 | medium | skill, hook, install, agent | Decodes an obfuscated payload (`b64decode`, `base64 -d`, `atob(`, `FromBase64String`) |
 | CFG-01 | high | skill, hook, install, agent | Writes agent configuration or shell startup files (`settings.json`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.bashrc`, `.zshrc`, `authorized_keys`, `.cursorrules` and similar) |
 | CFG-02 | high | skill, hook, install, agent | Reads or sends credential files (`.ssh`, `id_rsa`, `.aws/credentials`, `.npmrc`, `.netrc`, `.env`, `.git-credentials`) |
+| SEC-01 | high | skill, hook, install, agent | Embedded credential: a private key block or a token shaped like a GitHub (`ghp_`, `github_pat_`), OpenAI or Anthropic (`sk-`), AWS (`AKIA`, `ASIA`), Slack (`xox?-`) or Google (`AIza`) key. The key is redacted from the snippet of every finding, not only this one. Rotate the key and do not install |
 | NET-01 | medium | skill, hook, install, agent | URL pointing at an executable or archive (`.exe`, `.sh`, `.zip`, `.whl`, `.jar` and similar) |
 | UNI-01 | high | skill, hook, agent | Invisible characters: every Unicode format character (category Cf, which includes zero-width characters, bidirectional controls, soft hyphen, word joiners and a mid-file byte order mark) and the characters that render blank (U+034F, U+115F, U+1160, U+17B4, U+17B5, U+2800, U+3164, U+FFA0, variation selectors U+FE00 to U+FE0E). Not flagged: U+200D and U+FE0F (they occur in emoji) and a byte order mark at the very start of a file |
 | UNI-02 | high | skill, hook, agent | Unicode tag characters (U+E0000 to U+E007F, hidden ASCII) and the variation selector supplement (U+E0100 to U+E01EF) |
 | SKIP-01 | high | any file in scope | File not scanned: larger than 1 MB |
+| SKIP-03 | high | unreadable file in scope or directory | Review access and repeat the scan. JSON coverage reports counts even when individual findings exceed the display cap. |
 | SKIP-02 | medium | any file in scope | NUL bytes in a text file (`SKILL.md` or a Markdown, text, script, JSON, YAML or TOML file). The file is scanned with the NUL bytes removed |
 | INST-01 | medium | install | `package.json` lifecycle script (`preinstall`, `install`, `postinstall`, `prepare`, `prepublish`, `preuninstall`, `postuninstall`) |
 | INST-02 | medium | install | Installer script (shell, PowerShell, batch, Python or JavaScript): read it before running |
 | HOOK-01 | medium | hook | A hook file or script named by `hooks.json` that runs automatically on agent events: read the command before enabling |
 | MCP-01 | info | any | A `.mcp.json` or `mcp.json` file defines MCP servers |
 | LIC-01 | low | repository | No license file: reference only, do not redistribute |
-| LIC-02 | low | repository | Restrictive or copyleft license (Elastic, Business Source, SSPL, AGPL, GPL, Commons Clause, Polyform) |
+| LIC-02 | low | repository | Restrictive or copyleft license (Elastic, Business Source, Functional Source, SSPL, AGPL, GPL, Commons Clause, Polyform) |
 | LIC-03 | info | repository | License text not recognized: read it |
 
 ### How matching works

@@ -1,0 +1,9 @@
+{
+  "items": [
+    {
+      "id": "field-study", "kind": "workflow", "name": "Field study",
+      "description": "Plan field interviews, gather observations and review a research synthesis.",
+      "entry": "guide/start.md"
+    }
+  ]
+}

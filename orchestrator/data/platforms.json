@@ -116,6 +116,18 @@
                           "note":  "Also reads ~/.agents/skills and ~/.claude/skills."
                       },
                       {
+                          "id":  "antigravity",
+                          "name":  "Google Antigravity",
+                          "status":  "documented-only",
+                          "roots":  [
+                              {"path": "~/.gemini/config/skills", "hot": true, "source": "antigravity-user"},
+                              {"path": "~/.gemini/antigravity-cli/skills", "hot": true, "source": "antigravity-cli"},
+                              {"path": "~/.gemini/antigravity/skills", "hot": true, "source": "antigravity-legacy"}
+                          ],
+                          "project_roots": [".agents/skills"],
+                          "note": "App, IDE and CLI locations from the official skills guide. Host execution has not been verified."
+                      },
+                      {
                           "id":  "windsurf",
                           "name":  "Windsurf",
                           "status":  "documented-only",
