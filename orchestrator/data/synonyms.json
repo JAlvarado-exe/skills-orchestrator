@@ -29,6 +29,7 @@
     ["draft", "drafting", "outbound"],
     ["domain", "hostname", "trademark", "naming"],
     ["trading", "trader", "stock", "broker", "invest"],
+    ["breakeven", "economics", "margin"],
     ["slop", "generic", "filler", "boilerplate", "cliche"]
   ],
   "phrases": {
@@ -389,6 +390,7 @@
     "convierte": "convert",
     "convierto": "convert",
     "copiar": "copy",
+    "copia de seguridad": "backup",
     "corre": "run",
     "corregir": "fix correct",
     "correo": "email mail",
@@ -505,6 +507,9 @@
     "extraer": "extract",
     "extraigo": "extract",
     "factura": "invoice",
+    "estimar": "estimate forecast",
+    "escoger": "choose decide",
+    "escoger entre": "compare decide",
     "falla": "failure error bug",
     "fallar": "fail failure",
     "fallas": "failure error bug",
@@ -618,6 +623,7 @@
     "metodo": "method function",
     "metrica": "metric",
     "migracion": "migration",
+    "margen": "margin",
     "migrar": "migrate migration",
     "migro": "migrate migration",
     "mira": "look inspect",
@@ -674,6 +680,11 @@
     "plantilla": "template",
     "por que": "why reason",
     "precio": "price pricing",
+    "punto de equilibrio": "breakeven",
+    "quedar tablas": "breakeven",
+    "recuperar": "recover restore",
+    "recuperacion": "recovery restore",
+    "salir tablas": "breakeven",
     "prediccion": "prediction forecast",
     "pregunta": "question ask interview",
     "preguntar": "ask question",
@@ -748,6 +759,7 @@
     "respaldo": "backup",
     "respuesta": "response answer",
     "restaurar": "restore",
+    "restaura": "restore",
     "resuelve": "solve fix",
     "resuelvo": "solve fix",
     "resume": "summarize handoff",
@@ -872,6 +884,9 @@
     "sin relleno": "filler slop generic",
     "saliente": "outbound",
     "salientes": "outbound",
-    "redactar borrador": "draft write"
+    "redactar borrador": "draft write",
+    "ya termine": "finished",
+    "solo para avisarte": "just letting you know",
+    "solo para informarte": "just letting you know"
   }
 }

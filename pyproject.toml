@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "skills-orchestrator"
-version = "0.2.0"
+version = "0.3.0"
 description = "Platform-agnostic registry, search and safety scanner for agent skills."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -18,4 +18,4 @@ skills-orchestrator = "orchestrator.cli:main"
 packages = ["orchestrator"]
 
 [tool.setuptools.package-data]
-orchestrator = ["data/*.json"]
+orchestrator = ["data/*.json", "data/profiles/*.json"]

@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-18
+
+This release adds local methodology guides with explicit phase prerequisites, multilingual vocabulary for discovery,
+and separate labels for skills, workflows and documented tools. Search preserves evidence from the selected copy.
+The hook keeps compatible project snapshots and records only suggestions that fit in its output. Concurrent state
+updates use local filesystem locks. The wheel now ships the built-in profiles. See the README for a runnable demo.
+
 ### Added
 
 - `vet` rule SEC-01 (high): an embedded credential in a skill, hook, installer or agent file (private key block,

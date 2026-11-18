@@ -138,3 +138,17 @@ def normalize_text(text: str) -> str:
     only in those ways hash the same."""
     lines = [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
     return "\n".join(lines).strip("\n")
+
+
+def still_matches(entry: dict) -> bool:
+    """A stale snapshot may recommend a skill only if its selected physical copy is unchanged."""
+    path = entry.get("path")
+    if not path:
+        return False
+    try:
+        if os.path.normcase(os.path.realpath(path)) != os.path.normcase(path) or not stat.S_ISREG(os.stat(path).st_mode):
+            return False
+        with open(path, "rb") as handle:
+            return hashlib.sha256(handle.read(MAX_SKILL_BYTES)).hexdigest() == entry.get("sha256")
+    except (OSError, ValueError):
+        return False

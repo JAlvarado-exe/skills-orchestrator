@@ -25,6 +25,10 @@ def matches(entry: dict, patterns) -> bool:
     if not patterns:
         return False
     names = [entry.get("id", "")] + [entry.get("source", "")] + list(entry.get("sources", []) or [])
+    for origin in entry.get("origins", []):
+        source = origin.get("source")
+        if source:
+            names.extend([source, "%s/%s" % (source, entry.get("name", ""))])
     names = [name.lower() for name in names if isinstance(name, str) and name]
     for pattern in patterns:
         pattern = pattern.lower()

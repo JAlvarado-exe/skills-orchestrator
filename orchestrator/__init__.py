@@ -1,3 +1,3 @@
 """skills-orchestrator: a platform-agnostic registry, search and safety scanner for agent skills."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

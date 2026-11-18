@@ -527,6 +527,11 @@ class TranslationTests(unittest.TestCase):
     def test_multi_word_entries(self):
         self.assertIn(tokenize("database")[0], self.exact("la base de datos"))
 
+    def test_completed_status_and_informational_closings_translate(self):
+        self.assertIn(tokenize("finished")[0], self.exact("ya terminé"))
+        for closing in ("solo para avisarte", "solo para informarte"):
+            self.assertIn(tokenize("know")[0], self.exact(closing))
+
     def test_untranslated_spanish_words_are_harmless(self):
         corpus = [{"id": "x/a", "name": "alpha", "description": "parse widgets", "when_to_use": ""}]
         self.assertEqual(rank(corpus, "zzzxyz widgets", k=1)[0][1]["id"], "x/a")
@@ -722,10 +727,11 @@ class SkillAndReleaseTests(unittest.TestCase):
         self.assertRegex(text, r"\|\s*`list ")
 
     def test_versions_agree(self):
-        self.assertEqual(__version__, "0.2.0")
-        self.assertRegex(self.read("pyproject.toml"), r'(?m)^version = "0\.2\.0"$')
-        self.assertEqual(json.loads(self.read(".claude-plugin", "plugin.json"))["version"], "0.2.0")
-        for released, date in (("0.1.1", "2026-10-11"), ("0.1.2", "2026-10-11"), ("0.2.0", "2026-11-16")):
+        self.assertEqual(__version__, "0.3.0")
+        self.assertRegex(self.read("pyproject.toml"), r'(?m)^version = "0\.3\.0"$')
+        self.assertEqual(json.loads(self.read(".claude-plugin", "plugin.json"))["version"], "0.3.0")
+        for released, date in (("0.1.1", "2026-10-11"), ("0.1.2", "2026-10-11"), ("0.2.0", "2026-11-16"),
+                               ("0.3.0", "2026-11-18")):
             self.assertTrue("## [%s] - %s" % (released, date) in self.read("CHANGELOG.md"), "CHANGELOG lacks the %s section" % released)
 
     def test_docs_describe_every_config_key(self):

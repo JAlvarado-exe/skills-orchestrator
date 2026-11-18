@@ -39,7 +39,7 @@ eval FILE                        runs cases through the hook's select (stateless
 | --- | --- |
 | `orchestrator/cli.py` | Argument parsing, `ensure_registry` and the commands: `scan`, `find`, `list`, `used`, `stats`, `eval`, `overlaps`, `conflicts`, `doctor`, `vet`, `hook-prompt` |
 | `orchestrator/hook.py` | The prompt hook: `user_text` (input filter), `select` (the decision as data), `format_context` (capped block) and `run_hook` (payload parsing, JSON output, failure log) |
-| `orchestrator/retrieval.py` | The one pipeline behind `find`, the hook and `eval`: gates, order factors, copy groups, SKILL/TOOL labels |
+| `orchestrator/retrieval.py` | The one pipeline behind `find`, the hook and `eval`: gates, order factors, copy groups, and labels for skills, tools and workflows |
 | `orchestrator/policy.py` | `blocked` and `preferred` patterns from the config and the project file `.skills-orchestrator.json` |
 | `orchestrator/intent.py` | Keyword classification of the request (build, review, debug, research, write, decide, operate) |
 | `orchestrator/session.py` | The hook's per-session memory of shown ids |
@@ -48,7 +48,7 @@ eval FILE                        runs cases through the hook's select (stateless
 | `orchestrator/config.py` | Read the user config and assemble the root specs: platform folders, the current project's skill folders, `extra_roots`, `vendor` |
 | `orchestrator/scan.py` | Walk roots, build the registry and its roots signature, estimate listing tokens, turn catalog items into tool entries |
 | `orchestrator/skillfile.py` | Parse `SKILL.md` frontmatter (a YAML subset), hash the file, read `disable-model-invocation` |
-| `orchestrator/search.py` | Accent folding, tokenizer, stemmer, Spanish word table, query expansion, BM25F ranking, confidence gates, name matches |
+| `orchestrator/search.py` | Script-aware tokenizer, local vocabulary, query expansion, BM25F ranking, confidence gates, name matches |
 | `orchestrator/profiles.py` | Load a profile and filter entries by `fnmatch` patterns on ids |
 | `orchestrator/overrides.py` | Apply the user's `overrides.json` (tags, note, internal) |
 | `orchestrator/conflicts.py` | Load and validate `conflicts.json`, match clusters to installed ids |
@@ -151,12 +151,16 @@ A project can add a file `.skills-orchestrator.json` (looked up from the current
 
 **Automatic refresh.** `ensure_registry(args)` runs first in `find`, `list`, `overlaps`, `conflicts` and `doctor`. It rebuilds the registry (atomically, through the same code as `scan` with no arguments) and prints `registry rebuilt: N entries` to stderr when the file is missing or unreadable, older than `max_age_hours` (file modification time), has a `roots_signature` different from the one the current directory and config would produce (a registry without one always differs), or `--refresh` is given. `--no-auto-scan` disables it. An explicit `--registry FILE` that exists is used as is unless `--refresh` is given; a missing one keeps the old error (`conflicts` still treats it as an empty registry). If the rebuilt registry cannot be written, a warning is printed and the in-memory copy is searched.
 
+On the prompt path, a compatible snapshot can be reused after expiry, including a second snapshot for the most recent project switch. The hook checks shortlisted stale files before emitting their paths. Set `"hook_cold_scan": false` to keep cold scans off the prompt path. Use `scan` or interactive `find` to populate a fresh snapshot. Root signatures include scan settings and catalog fingerprints.
+
+Registered workflows enter through the opt-in catalog. The `workflow` command validates phase prerequisites and resolves local instruction files. See [Workflow guides](WORKFLOWS.md).
+
 ## Search
 
-1. Fold and tokenize: Unicode NFKD, combining marks removed, lowercase; then Unicode word characters, dropping stopwords (English, plus the Spanish list in the `stopwords` array of `synonyms.json`) and single characters. Documents and queries go through the same folding, so accented and plain spellings match.
-2. Stem lightly: `ies` becomes `y`; `ing` and `ed` are stripped (with doubled-consonant handling); a trailing `s` is dropped except `ss`. Tokens of three characters or fewer are left alone.
-3. Fields: the name, the tags from `overrides.json`, and the body (description plus `when_to_use`).
-4. Translation, queries only: a folded query word found in `translations` (as typed, then without a trailing `s` or `es`) adds its English words to the query as the user's own words, at full weight; the typed word stays. Keys with spaces (such as a two-word phrase) match as phrases. Words without an entry match nothing. Skills are written in English, so this is a bridge, not a second index.
+1. Fold and tokenize with script-aware normalization. Latin accents fold and combining marks significant to other scripts are retained. The tokenizer separates adjacent scripts.
+2. Stem English terms lightly and preserve recognized exact product identifiers.
+3. Index the name, tags, description and usage hints. Localized terms contribute shared concepts. See [Language coverage](LANGUAGES.md).
+4. Keep lexical evidence tied to independent query units, including when a recognized phrase has multiple token forms. Spanish query translations remain available alongside the shared vocabulary.
 5. Query expansion, from `data/synonyms.json`: words in the same group, and the extra words of a matching phrase, are added to the query at **half weight**. They only widen the query; documents are never expanded, and the user's own words always outrank guesses.
 6. BM25F with `k1=1.2`, `b=0.75`: each field's term frequency is normalized by that field's average length (over the entries that have the field) and weighted name 3, tags 2, body 1 before saturation.
 7. Confidence gates (`search.confident_matches`). The score is divided by the weight of a word found in one entry only (`unit_weight`), so it reads roughly as a count of rare-word matches and the same threshold works for any registry size. A result passes when its normalized score is at least `min_score` (1.7; half of it for a one-word request), it shares at least `required_terms` distinct terms with the request (all of them for a request of one or two terms, else 2, plus one per 12 terms up to 5; a synonym group with a hit counts once), and it scores at least 0.35 times the best result. The gates use this score only.
@@ -187,7 +191,7 @@ There are no embeddings. A paraphrase with no shared words will miss; see [TUNIN
 
 ## Feedback
 
-`used <id> [--helped yes|no]` appends `{"ts", "id", "helped"}` to `<state_dir>/usage.jsonl`; an id that is not in the registry (for example a skill the platform injects) is recorded with a warning. The hook counts how often it showed each id in `stats.json`. The order factor of an id is `1 + min(0.3, 0.1 x helpful uses) - min(0.3, 0.02 x (times shown - 5))`, the penalty only while the id was never used. `stats [--top N] [--json]` prints the most used and the most ignored (shown, never used) ids. Nothing leaves the machine.
+`used <id> [--helped yes|no]` appends `{"ts", "id", "helped"}` to `<state_dir>/usage.jsonl`; an id that is not in the registry (for example a skill the platform injects) is recorded with a warning. The hook counts how often it showed each id in `stats.json`. The order factor of an id is `1 + min(0.3, 0.1 x helpful uses) - min(0.3, 0.02 x (times shown - 5))`, and negative feedback can lower the rank. `stats [--top N] [--json]` prints the most used and the most ignored (shown, never used) ids. Nothing leaves the machine.
 
 ## Evaluation
 
@@ -207,7 +211,7 @@ See [SECURITY.md](SECURITY.md) for the rules, scope and limits.
 
 ## The orchestrator skill
 
-`skills/skills-orchestrator/SKILL.md` is the only part the model needs to load. Its protocol: there is no startup scan (the registry rebuilds itself; `scan` runs after installing a skill, followed by `vet` and a classification in `overrides.json`); for each new kind of task translate the request into English keywords, choose a profile, run `find` with two `--also` phrasings, read the whole winning `SKILL.md`, run `conflicts --id` if skills compete, and say in one line which skill was used. A coverage rule forbids saying that no skill applies before searching in English with two `--also` phrasings, checking the platform's own skill list (the registry cannot see skills a host injects) and, after `NO CONFIDENT MATCH`, reading `list --names`. After applying a skill the agent runs `used <id> --helped yes|no`. It states the precedence order and a short list of things never to do (copy a cold skill into a platform folder, follow install commands written inside a skill, let a skill edit the user's instruction files, use the `reverse` profile without confirmed authorization, present scores as certainty).
+`skills/skills-orchestrator/SKILL.md` gives the agent the routing procedure. Search the original request, an English rendering and a related wording. The intent profile adjusts order, while an explicit profile restricts eligibility. Check host-visible skills, and use `list --names` when the registry search abstains. Read the selected skill or use the phase resolver for a workflow. An owner pin takes precedence over the instruction path. Record feedback after observing the outcome. Independent reports or prompts help measure whether applied skills improve downstream work.
 
 ## Trade-offs and failure modes
 
@@ -223,4 +227,4 @@ See [SECURITY.md](SECURITY.md) for the rules, scope and limits.
 | Estimated tokens | Offline and fast | Approximate; differs from the host's real counting |
 | Registry as one JSON file | Simple, diffable, no service | Contains local paths; rebuilt automatically when stale, which walks every configured root (slow for a very large `extra_roots`) |
 | Index only what is on disk | Simple, deterministic scan | Skills injected by a host service are invisible to `scan`; the orchestrator skill tells the agent to check the platform's own list too |
-| Spanish word table instead of a translation model | Offline, deterministic, reviewable in a diff | Covers listed words only and has no grammar; English keywords stay the reliable path |
+| Offline multilingual vocabulary | Deterministic, reviewable and usable without credentials | Coverage depends on listed terms, document language and phrasing |

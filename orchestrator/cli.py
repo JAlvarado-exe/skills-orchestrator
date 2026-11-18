@@ -11,7 +11,7 @@ from . import __version__
 from .config import assemble_roots, load_config, registry_path
 from .conflicts import load_conflicts, match_clusters
 from .doctor import collect_hooks, run_doctor
-from .jsonio import read_json
+from .jsonio import read_json, write_json_atomic
 from .overlaps import find_overlaps
 from .overrides import apply_overrides, load_overrides
 from .platforms import load_platforms, resolve_roots
@@ -19,7 +19,7 @@ from .feedback import default_state_dir, factors as feedback_factors, load_stats
 from .intent import classify
 from .policy import allowed, load_policy
 from .profiles import filter_entries, load_profile
-from .retrieval import kind, retrieve, state
+from .retrieval import display_origin, kind, owner_pins, retrieve, state
 from .sanitize import sanitize
 from .scan import REGISTRY_VERSION, find_skill_files, make_registry, roots_signature, spec_contain, upgrade_registry
 from .search import name_matches, tokenizer_id
@@ -94,19 +94,7 @@ def _entries(args, path: str, registry: dict, config: dict = None):
 
 def _write_registry(registry: dict, out: str) -> None:
     """Serialize first, write beside the target, then replace: a failure never damages the existing file."""
-    payload = json.dumps(registry, indent=1, ensure_ascii=True)
-    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
-    temp = out + ".tmp"
-    try:
-        with open(temp, "w", encoding="utf-8") as handle:
-            handle.write(payload)
-        os.replace(temp, out)
-    except Exception:
-        try:
-            os.unlink(temp)
-        except OSError:
-            pass
-        raise
+    write_json_atomic(out, registry, indent=1)
 
 
 def _persist(registry: dict, out: str) -> bool:
@@ -128,12 +116,12 @@ def _read_quietly(path: str):
     return registry if isinstance(registry, dict) and isinstance(registry.get("entries"), list) else None
 
 
-def _is_current(registry: dict, path: str, config: dict, cwd: str = None) -> bool:
-    """Built from the roots this cwd and config produce, and not older than max_age_hours."""
-    if registry.get("version") != REGISTRY_VERSION or registry.get("tokenizer") != tokenizer_id():
-        return False
-    if registry.get("roots_signature") != roots_signature(assemble_roots(config, cwd or os.getcwd()), config["catalogs"]):
-        return False
+def _compatible(registry, signature):
+    return (registry is not None and registry.get("version") == REGISTRY_VERSION
+            and registry.get("tokenizer") == tokenizer_id() and registry.get("roots_signature") == signature)
+
+
+def _fresh(path: str, config: dict) -> bool:
     try:
         age = time.time() - os.path.getmtime(path)
     except OSError:
@@ -141,7 +129,7 @@ def _is_current(registry: dict, path: str, config: dict, cwd: str = None) -> boo
     return age <= config["max_age_hours"] * 3600
 
 
-def ensure_registry(args, soft: bool = False, cwd: str = None):
+def ensure_registry(args, soft: bool = False, cwd: str = None, prompt: bool = False):
     """Return (path, registry, config), rebuilding the registry first when it is missing, unreadable, older than
     max_age_hours, built from other roots than this cwd/config give, or when --refresh is passed.
 
@@ -158,11 +146,28 @@ def ensure_registry(args, soft: bool = False, cwd: str = None):
         if soft and not os.path.isfile(path):
             return path, None, config
         return path, _load_registry(path), config
+    specs = assemble_roots(config, cwd)
+    signature = roots_signature(specs, config["catalogs"])
+    registry = _read_quietly(path)
+    # One additional snapshot handles alternating projects without unbounded disk use.
+    # Return the configured path so feedback, overrides and state still resolve beside it.
+    alternate = os.path.join(os.path.dirname(os.path.abspath(path)), ".skills-orchestrator",
+                             os.path.basename(path) + ".previous.json")
     if not refresh:
-        registry = _read_quietly(path)
-        if registry is not None and _is_current(registry, path, config, cwd):
-            return path, upgrade_registry(registry), config
-    registry = make_registry(assemble_roots(config, cwd), config["catalogs"], "config")
+        if _compatible(registry, signature):
+            if _fresh(path, config):
+                return path, upgrade_registry(registry), config
+            if prompt:
+                return path, dict(upgrade_registry(registry), stale_snapshot=True), config
+        if prompt:
+            cached = _read_quietly(alternate)
+            if _compatible(cached, signature):
+                return path, dict(upgrade_registry(cached), stale_snapshot=True), config
+            if not config.get("hook_cold_scan", True):
+                return path, None, config
+    if prompt and registry and registry.get("built_with") == "config" and registry.get("roots_signature") != signature:
+        _persist(registry, alternate)
+    registry = make_registry(specs, config["catalogs"], "config", previous=registry)
     _persist(registry, path)
     print("registry rebuilt: %d entries" % len(registry["entries"]), file=sys.stderr)
     return path, registry, config
@@ -182,7 +187,9 @@ def cmd_scan(args) -> int:
     else:
         specs = assemble_roots(config, os.getcwd(), platforms_file=args.platforms or DEFAULT_PLATFORMS, home=args.home) + specs
         built_with, catalogs = "config", config["catalogs"] + list(args.catalog)
-    registry = make_registry(specs, catalogs, built_with)
+    out = args.out or registry_path(config)
+    old_registry = _read_quietly(out) if not args.check else None
+    registry = make_registry(specs, catalogs, built_with, previous=old_registry)
     if args.check:
         files = set()
         for spec in specs:
@@ -191,15 +198,14 @@ def cmd_scan(args) -> int:
                                                                            exclude=spec.get("exclude", ())))
         print(_summary(registry))
         return 0 if len(files) == _path_count(registry) else 1
-    out = args.out or registry_path(config)
     if built_with == "explicit" and not args.out:
         print("note: explicit roots replace the default registry; find rebuilds it from your config on its next run "
               "(use --out to keep this one separate)", file=sys.stderr)
     previous = None
-    if os.path.isfile(out):
+    if old_registry is not None:
         try:
-            previous = {e["id"] for e in read_json(out).get("entries", [])}
-        except (OSError, ValueError, AttributeError, KeyError, TypeError, RecursionError):
+            previous = {e["id"] for e in old_registry["entries"]}
+        except (KeyError, TypeError):
             previous = None
     _write_registry(registry, out)
     print(_summary(registry))
@@ -255,6 +261,7 @@ def cmd_find(args) -> int:
     pool, failure = _filter_profile(args, config, _pool(args, path, registry, config, policy))
     if pool is None:
         return failure
+    pool = [origin for e in pool if (origin := display_origin(e, args.all)) is not None]
     queries = [" ".join(args.query)] + list(args.also)
     intent, profile_name = classify(queries[0])
     profile = _intent_profile(profile_name, args, config) if args.profile is None else None
@@ -265,12 +272,16 @@ def cmd_find(args) -> int:
     shaped = []
     for item in results:
         e = item["entry"]
+        pins = owner_pins(e)
         shaped.append({"id": sanitize(e["id"], ID_LIMIT), "label": kind(e), "state": state(e), "score": round(item["score"], 3),
-                       "path": sanitize(e.get("path", ""), PATH_LIMIT), "hot": e.get("hot", False),
+                       **({"owner_pin": pins} if pins else {"path": sanitize(e.get("path", ""), PATH_LIMIT)}),
+                       **({"origin_source": sanitize(e["origin_source"], 100)} if e.get("origin_source") else {}),
+                       **({"availability": sanitize(e["availability"], 40)} if e.get("availability") else {}),
+                       "hot": e.get("hot", False),
                        "platforms": [sanitize(p, 60) for p in e.get("platforms", [])], "copies": item["copies"],
                        "matched": [sanitize(t, 40) for t in sorted(item["matched"])[:8]], "variants": len(e.get("variants", [])),
                        "kind": sanitize(e.get("kind", "skill"), 20) or "skill",
-                       **({"upstream": sanitize(e["upstream"], PATH_LIMIT)} if e.get("upstream") else {}),
+                       **({"upstream": sanitize(e["upstream"], PATH_LIMIT)} if not pins and e.get("upstream") else {}),
                        "description_untrusted": sanitize(e.get("description", ""), 300),
                        **({"note": sanitize(e["note"], 300)} if e.get("note") else {})})
     if args.json:
@@ -287,9 +298,13 @@ def cmd_find(args) -> int:
     for item in shaped:
         copies = "  (+%d copies)" % item["copies"] if item["copies"] else ""
         print("%.2f  %s  %s %s%s" % (item["score"], item["id"], item["label"], item["state"], copies))
-        if item["label"] == "TOOL":
+        if item.get("owner_pin"):
+            print("      owner-pin: owner confirmation required; check %s" % ", ".join(item["owner_pin"]))
+        elif item["label"] == "TOOL":
             if item.get("upstream"):
-                print("      run (see its docs): %s" % item["upstream"])
+                label = ("documented only. Session availability required to run (see its docs)"
+                         if item.get("availability") == "documented-only" else "run (see its docs)")
+                print("      %s: %s" % (label, item["upstream"]))
         else:
             print("      read: %s" % item["path"])
         print("      %s" % item["description_untrusted"][:160])
@@ -314,11 +329,36 @@ def cmd_used(args) -> int:
     if registry is not None and ident not in {e.get("id") for e in registry["entries"]}:
         print("warning: %s is not in the registry; recorded anyway" % ident, file=sys.stderr)
     try:
-        record_use(_state_dir(config, path), ident, args.helped)
+        record_use(_state_dir(config, path), ident, args.helped, session_id=args.session_id)
     except OSError as exc:
         print("error: cannot write the usage log (%s)" % sanitize(str(exc), 120), file=sys.stderr)
         return 2
     print("recorded: %s%s" % (ident, " (helped: %s)" % args.helped if args.helped else ""))
+    return 0
+
+
+def cmd_workflow(args) -> int:
+    from .workflows import phase_status
+    path, registry, config = ensure_registry(args)
+    if registry is None:
+        return 2
+    entries = allowed(_entries(args, path, registry, config), load_policy(config, os.getcwd()))
+    found = [e for e in entries if e["id"] == args.id and e.get("kind") == "workflow" and not e.get("internal")]
+    if len(found) != 1 or owner_pins(found[0]):
+        print("error: workflow unavailable or requires an owner pin", file=sys.stderr)
+        return 2
+    try:
+        result = phase_status(found[0], args.done, args.approved)
+    except (ValueError, OSError, RuntimeError) as exc:
+        print("error: %s" % sanitize(str(exc), 180), file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(_clean(result, 2048), ensure_ascii=False))
+    elif result["complete"]:
+        print("Workflow complete.")
+    else:
+        for row in result["ready"]:
+            print("%s  %s" % (row["id"], sanitize(row.get("instructions", row["status"]), 2048)))
     return 0
 
 
@@ -367,7 +407,9 @@ def cmd_hook_prompt(args) -> int:
 def _hook_run(payload, loaded):
     """(shown ids, printed block) of the hook for one payload, against an already loaded registry; stateless."""
     from .hook import format_context, select
-    selection = select(payload.get("prompt"), payload.get("cwd"), loaded=loaded, stateful=False)
+    if payload.get("message_type") == "status":
+        return [], ""
+    selection = select(payload.get("prompt"), payload.get("cwd"), loaded=loaded, stateful=False, session_id=payload.get("session_id"))
     printed = format_context(selection)
     return ([item["entry"]["id"] for item in selection["results"]] if selection else []), printed
 
@@ -625,9 +667,19 @@ def build_parser():
     used = sub.add_parser("used", help="record that a skill was applied (and whether it helped)")
     used.add_argument("id", nargs="+", help="the skill id as find or the hook printed it")
     used.add_argument("--helped", choices=["yes", "no"])
+    used.add_argument("--session-id", help="hook session that used this skill")
     used.add_argument("--config")
     used.add_argument("--registry", help="registry used to check the id (default: the configured one)")
     used.set_defaults(func=cmd_used)
+
+    workflow = sub.add_parser("workflow", help="show the next phases of a local workflow")
+    workflow.add_argument("id")
+    workflow.add_argument("--done", action="append", default=[], help="completed phase (repeatable)")
+    workflow.add_argument("--approved", action="append", default=[], help="phase explicitly approved by its owner")
+    workflow.add_argument("--config")
+    workflow.add_argument("--registry")
+    workflow.add_argument("--json", action="store_true")
+    workflow.set_defaults(func=cmd_workflow)
 
     stats = sub.add_parser("stats", help="print the most used and the most ignored skills")
     stats.add_argument("--top", type=int, default=10)

@@ -1,0 +1,23 @@
+{
+ "note": "Exploratory audit cases labeled before the first run. The expected ids refer to the existing synthetic corpus. An expected list gives acceptable hits, and phase coverage is examined separately.",
+ "cases": [
+  {"id":"es-rollback","prompt":"Anoche perdimos los registros. Quiero recuperar la copia de ayer y comprobar que se puede leer.","expected":["ops-skills/backup-restore"]},
+  {"id":"es-cost","prompt":"Si cobro por mes y sube el costo por pedido, ¿cuántos clientes necesito para salir tablas?","expected":["biz-skills/financial-model"]},
+  {"id":"es-rival","prompt":"Averigua quién más vende esto y cuánto cobra cada uno.","expected":["research-skills/competitor-analysis"]},
+  {"id":"es-bug","prompt":"A ratos se queda pegada la compra. Ayudame a descubrir en qué paso empieza.","expected":["eng-skills/systematic-debugging"]},
+  {"id":"es-sequence","prompt":"Primero quiero un diagrama de arquitectura de los servicios y después una presentación de ventas para el cliente.","expected":["docs-skills/diagram-design","claude-user/sales-deck","docs-skills/slide-deck"]},
+  {"id":"es-followup","prompt":"Ahora pasalo a diapositivas para la reunión del lunes.","expected":["docs-skills/slide-deck"]},
+  {"id":"es-edit","prompt":"Suena demasiado acartonado. Dejalo como lo escribiría una persona.","expected":["claude-user/humanize-prose"]},
+  {"id":"es-choice","prompt":"Poné en una balanza costo, plazo y soporte de las tres propuestas y ayudame a escoger.","expected":["biz-skills/decision-matrix"]},
+  {"id":"en-slow","prompt":"Find why the database queries take longer after the table grows.","expected":["eng-skills/performance-optimization"]},
+  {"id":"en-interface","prompt":"Design the public API endpoints and their request contracts.","expected":["eng-skills/api-design"]},
+  {"id":"en-release","prompt":"Turn the merged changes since our last tag into release notes.","expected":["docs-skills/changelog-writer"]},
+  {"id":"en-structure","prompt":"Which parts of this repository call the billing module? Map its dependencies.","expected":["research-skills/codebase-map","catalog/graph-index"]},
+  {"id":"en-restore","prompt":"Schedule a nightly backup and rehearse a restore.","expected":["ops-skills/backup-restore"]},
+  {"id":"en-outline","prompt":"Break this feature into small tasks and acceptance criteria.","expected":["eng-skills/planning-breakdown"]},
+  {"id":"silent-es-approval","prompt":"Sí, estamos de acuerdo. Dejémoslo aquí.","silent":true},
+  {"id":"silent-en-report","prompt":"The pull request review and the database backup are both finished. No further action, thanks.","silent":true},
+  {"id":"silent-es-report","prompt":"Ya terminé el diagrama de arquitectura y la presentación de ventas. Era solo para avisarte.","silent":true},
+  {"id":"silent-en-chat","prompt":"How is your morning going today?","silent":true}
+ ]
+}

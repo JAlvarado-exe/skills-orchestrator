@@ -7,11 +7,9 @@ group (the synonyms of one query word, or the words of one matched phrase) contr
 single best match, at half weight, and never for a word the user already typed. So an exact word
 outranks a document that merely lists many synonyms.
 
-Requests in Spanish work through two more steps. ``fold`` strips accents and case on both the query
-and the documents, and a table of folded Spanish words (``translations`` in data/synonyms.json)
-adds their English equivalents to the query as the user's own words (full weight): skills are
-written in English, so the table is a bridge, not a second index. Spanish words without an entry
-simply do not match.
+Local vocabulary tables connect task terms across languages. Each recognized alias contributes
+one lexical unit. Metadata uses its canonical token, so knowing multiple names for a concept
+does not add extra votes to a document. Unknown terms can still match their original spelling.
 """
 from __future__ import annotations
 
@@ -19,11 +17,15 @@ import math
 import os
 import re
 import unicodedata
+from dataclasses import dataclass
+from functools import lru_cache
 
 from .jsonio import read_json
 
 _WORD = re.compile(r"[^\W_]+", re.UNICODE)
+_IDENTIFIER = re.compile(r"[A-Za-z][A-Za-z0-9]*")
 SYNONYMS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "synonyms.json")
+LANGUAGES_FILE = os.path.join(os.path.dirname(SYNONYMS_FILE), "language_bridges.json")
 EXPANSION_WEIGHT = 0.5
 # Confidence gates (see docs/EVAL.md for how they were chosen). A result is shown only when its normalized score is
 # at least MIN_SCORE, it shares enough distinct terms with the request (required_terms) and it scores at least
@@ -38,12 +40,20 @@ _VOWELS = "aeiou"
 
 
 def fold(text: str) -> str:
-    """Lowercase and strip accents (NFKD, combining marks dropped): "Código" and "codigo" become the same word."""
+    """Fold Latin accents while preserving vowel signs, kana voicing and Hangul syllables."""
     text = text or ""
     if text.isascii():
         return text.lower()
-    decomposed = unicodedata.normalize("NFKD", text)
-    return "".join(char for char in decomposed if not unicodedata.category(char).startswith("M")).lower()
+    result = []
+    latin = False
+    for char in unicodedata.normalize("NFKD", text.casefold()):
+        if unicodedata.category(char).startswith("M"):
+            if latin:
+                continue
+        else:
+            latin = unicodedata.name(char, "").startswith("LATIN ")
+        result.append(char)
+    return unicodedata.normalize("NFC", "".join(result))
 
 
 def _read_data() -> dict:
@@ -70,13 +80,14 @@ def _stopwords() -> frozenset:
 
 
 STOPWORDS = _stopwords()
-STEMMER_VERSION = "stem-1"
+STEMMER_VERSION = "script-bridge-1"
 
 
 def tokenizer_id() -> str:
     """Fingerprint of everything that changes tokens: a registry whose stored tokens carry another id is re-tokenized."""
     import hashlib
-    return hashlib.sha256((STEMMER_VERSION + "\n" + " ".join(sorted(STOPWORDS))).encode("utf-8")).hexdigest()[:16]
+    data = STEMMER_VERSION + "\n" + " ".join(sorted(STOPWORDS)) + "\n" + _bridges().fingerprint
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()[:16]
 
 
 def _stem(token: str) -> str:
@@ -100,16 +111,174 @@ def _stem(token: str) -> str:
     return stem
 
 
+def _script(char):
+    """Keep adjacent identifiers separate from CJK text, including compatibility Han blocks."""
+    name = unicodedata.name(char, "")
+    if name.startswith(("CJK ", "HIRAGANA ", "KATAKANA ")) or char == "ー":
+        return "cjk"
+    return name.partition(" ")[0] if char.isalpha() else ""
+
+
+def _spans(text):
+    if text.isascii():
+        yield from _WORD.findall(text)
+        return
+    start, script = 0, ""
+    for i, char in enumerate(text):
+        if not (char.isalnum() or unicodedata.category(char).startswith("M")):
+            if i > start:
+                yield text[start:i]
+            start, script = i + 1, ""
+            continue
+        current = _script(char)
+        if current and script and current != script:
+            yield text[start:i]
+            start = i
+        if current:
+            script = current
+    if start < len(text):
+        yield text[start:]
+
+
+def _insert(trie, parts, value):
+    for part in parts:
+        trie = trie.setdefault(part, {})
+    trie[None] = value
+
+
+def _longest(trie, parts, start):
+    """Return the longest vocabulary match starting here, or the unchanged cursor."""
+    end, value = start, None
+    for pos in range(start, len(parts)):
+        trie = trie.get(parts[pos])
+        if trie is None:
+            break
+        if None in trie:
+            end, value = pos + 1, trie[None]
+    return end, value
+
+
+@dataclass
+class _Vocabulary:
+    terms: dict
+    unspaced: dict
+    korean_words: set
+    particles: tuple
+    fingerprint: str
+
+
+@lru_cache(maxsize=1)
+def _bridges():
+    try:
+        tables = read_json(LANGUAGES_FILE)
+    except (OSError, ValueError, RecursionError):
+        tables = {}
+    if not isinstance(tables, dict):
+        tables = {}
+    endings = tables.get("korean_particles", [])
+    particles = tuple(sorted((p for p in endings if isinstance(p, str) and p), key=lambda p: (-len(p), p)))
+    aliases = {}
+    for table in tables.values():
+        for pivot, words in table.items() if isinstance(table, dict) else ():
+            if isinstance(words, list):
+                for word in words:
+                    if isinstance(word, str):
+                        aliases[fold(word)] = pivot
+    # Reuse the existing Spanish vocabulary for these concepts. Homographs
+    # used as English translation targets keep their English document meaning.
+    pivots = set(aliases.values())
+    spanish = _read_data().get("translations", {})
+    spanish = {key: value for key, value in spanish.items() if isinstance(value, str) and value.strip()
+               } if isinstance(spanish, dict) else {}
+    english = {word for value in spanish.values() for word in value.split()}
+    for word, value in spanish.items():
+        pivot = value.split()[0]
+        if pivot in pivots and word not in english:
+            aliases.setdefault(word, pivot)
+    terms, cjk, korean_words = {}, {}, set()
+    for alias, pivot in aliases.items():
+        parts = list(_spans(alias))
+        if not parts:
+            continue
+        _insert(terms, parts, pivot)
+        for part in parts:
+            if _script(part[0]) == "cjk":
+                _insert(cjk, part, part)
+            elif _script(part[0]) == "HANGUL":
+                korean_words.add(part)
+    fingerprint = "\n".join(k + "=" + aliases[k] for k in sorted(aliases))
+    return _Vocabulary(terms, cjk, korean_words, particles, fingerprint + "\n" + " ".join(particles))
+
+
+def _words(text, vocab):
+    for word in _spans(text):
+        if word.isascii():
+            yield word
+        elif _script(word[0]) == "cjk":
+            pos = start = 0
+            while pos < len(word):
+                end, known = _longest(vocab.unspaced, word, pos)
+                if known:
+                    if pos > start:
+                        yield word[start:pos]
+                    yield known
+                    pos = start = end
+                else:
+                    pos += 1
+            if pos > start:
+                yield word[start:pos]
+        elif _script(word[0]) == "HANGUL":
+            for suffix in vocab.particles:
+                if word.endswith(suffix) and word[:-len(suffix)] in vocab.korean_words:
+                    word = word[:-len(suffix)]
+                    break
+            yield word
+        else:
+            yield word
+
+
+def _lexemes(text):
+    vocab = _bridges()
+    words = list(_words(text, vocab))
+    pos = 0
+    while pos < len(words):
+        end, pivot = _longest(vocab.terms, words, pos)
+        if pivot:
+            yield words[pos:end], pivot
+            pos = end
+        else:
+            yield [words[pos]], None
+            pos += 1
+
+
+def _surface(word):
+    if word in STOPWORDS or len(word) < 2:
+        return None
+    token = _stem(word) if word.isascii() else word
+    return token if token not in STOPWORDS else None
+
+
+def _identifier_forms(text):
+    """Internal capitals distinguish product spellings such as SQLite from prose inflections."""
+    forms = {}
+    for match in _IDENTIFIER.finditer(text):
+        word = match.group()
+        if word.islower() or word.isupper() or word.istitle():
+            continue
+        raw = word.lower()
+        stem = _surface(raw)
+        if stem and raw != stem:
+            forms[stem] = raw
+    return forms
+
+
 def tokenize(text: str):
     tokens = []
-    for raw in _WORD.findall(fold(text)):
-        if raw in STOPWORDS or len(raw) < 2:
-            continue
-        stem = _stem(raw)
-        if stem in STOPWORDS:
-            continue
-        tokens.append(stem)
-    return tokens
+    for words, pivot in _lexemes(fold(text)):
+        token = _surface(pivot or words[0])
+        if token:
+            tokens.append(token)
+    return tokens + list(_identifier_forms(text).values())
 
 
 _SYNONYMS = None
@@ -165,14 +334,15 @@ def _query_units(folded: str):
     The typed word is always kept, so a word that is also English ("error") still matches itself.
     """
     single, multi = load_translations()
-    words = _WORD.findall(folded)
-    joined = " ".join(words)
+    lexemes = list(_lexemes(folded))
+    joined = " ".join(word for words, _pivot in lexemes for word in words)
     units = []
     for pattern, english in multi:
         if pattern.search(joined):
             units.append(tokenize(english))
-    for word in words:
-        unit = tokenize(word)
+    for words, pivot in lexemes:
+        word = " ".join(words)
+        unit = [token for token in (_surface(pivot or word),) if token]
         english = None if word in STOPWORDS else _translate(word, single)
         if english:
             unit = unit + tokenize(english)
@@ -194,6 +364,7 @@ def query_units(query: str):
     """
     related, _phrases = load_synonyms()
     seen, units = [], []
+    literals = _identifier_forms(query)
     for unit in _query_units(fold(query)):
         typed = frozenset(unit)
         if typed in seen:
@@ -202,6 +373,8 @@ def query_units(query: str):
         wide = set(typed)
         for token in typed:
             wide |= related.get(token, set())
+            if token in literals:
+                wide.add(literals[token])
         units.append(frozenset(wide))
     return units
 
@@ -277,7 +450,8 @@ def rank(entries, query: str, k: int = 5, k1: float = K1, b: float = B):
     for doc in docs:
         for token in set(doc["name"]) | set(doc["tags"]) | set(doc["body"]):
             df[token] = df.get(token, 0) + 1
-    wanted = set(exact) | {t for group in groups for t in group}
+    literals = _identifier_forms(query)
+    wanted = set(exact) | set(literals.values()) | {t for group in groups for t in group}
     scored = []
     for entry, doc in zip(entries, docs):
         weighted = {}
@@ -299,7 +473,7 @@ def rank(entries, query: str, k: int = 5, k1: float = K1, b: float = B):
             idf = math.log(1.0 + (n - df[token] + 0.5) / (df[token] + 0.5))
             return idf * (freq * (k1 + 1.0)) / (freq + k1)
 
-        score = sum(bm25(t) for t in exact)
+        score = sum(max(bm25(t), bm25(literals[t])) if t in literals else bm25(t) for t in exact)
         score += EXPANSION_WEIGHT * sum(max(bm25(t) for t in group) for group in groups)
         if score > 0:
             scored.append((score, entry))

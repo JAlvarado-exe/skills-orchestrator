@@ -2,12 +2,36 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from orchestrator.vet import vet_path
 from tests.helpers import skill, write
 
 ZERO_WIDTH = "​"
 TAG_CHAR = chr(0xE0041)
+
+
+class CoverageTests(unittest.TestCase):
+    def test_unreadable_skill_is_reported_but_a_readable_skill_is_complete(self):
+        with tempfile.TemporaryDirectory() as folder:
+            skill(folder, "survey", "survey", "Plan field interviews.")
+            self.assertTrue(vet_path(folder)["coverage"]["complete"])
+            with mock.patch("orchestrator.vet.open", side_effect=PermissionError):
+                result = vet_path(folder, max_per_rule=0)
+            self.assertEqual(result["coverage"]["unreadable_files"], 1)
+            self.assertFalse(result["coverage"]["complete"])
+            self.assertEqual(result["suppressed"]["SKIP-03"], 1)
+            self.assertGreater(result["summary"]["high"], 0)
+
+    def test_walk_error_reaches_the_report(self):
+        def failed(root, onerror):
+            onerror(PermissionError(13, "Permission denied", os.path.join(root, "closed")))
+            return []
+
+        with tempfile.TemporaryDirectory() as folder, mock.patch("orchestrator.vet.os.walk", failed):
+            result = vet_path(folder)
+            self.assertEqual(result["coverage"]["unreadable_directories"], 1)
+            self.assertTrue(any(f["rule"] == "SKIP-03" and f["file"] == "closed" for f in result["findings"]))
 
 
 def build_evil(tmp):

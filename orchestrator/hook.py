@@ -25,9 +25,10 @@ from .config import load_config, registry_path as default_registry_path
 from .intent import classify
 from .jsonio import read_json
 from .policy import allowed, load_policy
-from .retrieval import kind, retrieve, state
+from .retrieval import auto_eligible, display_origin, kind, owner_pins, retrieve, state
 from .sanitize import sanitize
-from .search import query_terms
+from .search import fold, load_translations, query_units
+from .skillfile import still_matches
 
 DISABLE_ENV = "SKILLS_ORCHESTRATOR_HOOK"
 LOG_ENV = "SKILLS_ORCHESTRATOR_HOOK_LOG"
@@ -48,6 +49,8 @@ CLOSING = ("If you apply one, run `run.py used <id> --helped yes|no` afterwards.
            "the platform injects; the Coverage rule still applies before saying that no skill fits.")
 NO_TERMS = "(synonyms only)"
 _SKIP = None
+STATUS_CLOSING = re.compile(r"(?:no further action(?: needed)?|no action (?:needed|required)|just letting you know)(?:,? thanks)?$")
+COMPLETION = re.compile(r"\b(?:finished|completed|done|was \w+ed|were \w+ed)\b")
 
 
 def _disabled() -> bool:
@@ -89,15 +92,37 @@ def user_text(prompt: str, extra_tags=()) -> str:
     return text
 
 
+def _status_report(text: str) -> bool:
+    """Require an explicit closing and a single completed statement; preserve requests and questions."""
+    if "?" in text:
+        return False
+    folded = fold(text).rstrip(" .!\n")
+    for pattern, english in load_translations()[1]:
+        if english in ("just letting you know", "finished"):
+            folded = pattern.sub(english, folded)
+    parts = re.split(r"[.!\n]+\s*", folded)
+    if len(parts) == 1:
+        return bool(STATUS_CLOSING.fullmatch(parts[0]))
+    if len(parts) != 2 or not COMPLETION.search(parts[0]) or not STATUS_CLOSING.search(parts[1]):
+        return False
+    # A short prefix can introduce a conventional closing in another language.
+    prefix = STATUS_CLOSING.split(parts[1])[0].strip()
+    return len(prefix.split()) <= 1 and not re.search(r"\b(?:please|can you|could you|but|now|then|next)\b", parts[0])
+
+
 def _unit(position: int, item: dict):
     """The lines of one result: the summary line and where to read or run it."""
     entry = item["entry"]
     terms = ", ".join(sanitize(term, TERM_LIMIT) for term in sorted(item["matched"])[:8]) or NO_TERMS
     copies = " (+%d copies)" % item["copies"] if item["copies"] else ""
     lines = ["%d. %s %s %s%s matched: %s" % (position, sanitize(entry.get("id", ""), ID_LIMIT), kind(entry), state(entry), copies, terms)]
-    if kind(entry) == "TOOL":
+    pins = owner_pins(entry)
+    if pins:
+        lines[0] += " [owner-pin: owner confirmation required; check %s]" % ", ".join(pins)
+    elif kind(entry) == "TOOL":
         if entry.get("upstream"):
-            lines.append("   run (see its docs): " + sanitize(entry["upstream"], PATH_LIMIT))
+            label = "docs (documented only)" if entry.get("availability") == "documented-only" else "run (see its docs)"
+            lines.append("   %s: %s" % (label, sanitize(entry["upstream"], PATH_LIMIT)))
     else:
         lines.append("   read: " + sanitize(entry.get("path", ""), PATH_LIMIT))
     return lines
@@ -107,20 +132,22 @@ def _cost(lines) -> int:
     return sum(len(line) + 1 for line in lines)
 
 
-def _assemble(units, intent: str) -> str:
-    """Join the block, dropping the path line of a result, then whole results, to fit HARD_CAP."""
+def _assemble(units, intent: str, closing: str):
+    """Return the block and the number of result lines that survived its size limit."""
     header = HEADER % sanitize(intent, 20)
-    used = _cost([header, CLOSING])
+    used = _cost([header, closing])
     body = []
+    count = 0
     for unit in units:
         for candidate in (unit, unit[:1]):
             if used + _cost(candidate) <= HARD_CAP:
                 body.extend(candidate)
                 used += _cost(candidate)
+                count += 1
                 break
         else:
             break
-    return "\n".join([header] + body + [CLOSING])
+    return ("\n".join([header] + body + [closing]) if count else ""), count
 
 
 def _state_dir(config: dict, registry_file: str) -> str:
@@ -155,38 +182,53 @@ def select(prompt, cwd, config_path=None, registry_path=None, top=None, loaded=N
     if len(text) < config.get("hook_min_chars", 8) or text.startswith("/"):
         return None
     text = text[:MAX_PROMPT_CHARS]
-    if len(query_terms(text)[0]) < MIN_QUERY_TERMS:
+    if _status_report(text) or len(query_units(text)) < MIN_QUERY_TERMS:
         return None
-    path, registry, config = loaded or ensure_registry(args, cwd=_project_dir(cwd))
+    path, registry, config = loaded or ensure_registry(args, cwd=_project_dir(cwd), prompt=True)
     if registry is None:
         return None
     policy = load_policy(config, _project_dir(cwd))
-    pool = allowed([e for e in _entries(args, path, registry, config) if not e.get("internal")], policy)
+    pool = allowed([e for e in _entries(args, path, registry, config) if not e.get("internal") and auto_eligible(e)], policy)
+    pool = [origin for e in pool if (origin := display_origin(e)) is not None]
     intent, profile_name = classify(text)
     state_dir = _state_dir(config, path)
     memory = session.load(state_dir, session_id) if stateful and config.get("session_memory", True) else None
-    hidden = session.suppressed(state_dir, memory) if memory else set()
-    weights = feedback.factors(state_dir) if stateful and config.get("feedback", True) else {}
+    use_feedback = stateful and config.get("feedback", True)
+    totals, sessions = feedback.usage_index(state_dir) if memory or use_feedback else ({}, {})
+    hidden = session.suppressed(state_dir, memory, sessions)
+    weights = feedback.factors(state_dir, totals) if use_feedback else {}
     limit = max(1, min(int(top if top is not None else config.get("hook_top", DEFAULT_TOP)), MAX_TOP))
     results = retrieve(pool, [text], policy["min_score"], policy["min_terms"], policy["preferred"],
                        _profile(profile_name, config), weights, hidden)[:limit]
+    if registry.get("stale_snapshot"):
+        results = [item for item in results if kind(item["entry"]) != "SKILL" or still_matches(item["entry"])]
     if not results:
         return None
+    units = [_unit(n, item) for n, item in enumerate(results, 1)]
+    closing = CLOSING
+    if config.get("session_memory", True) and session.session_path(state_dir, session_id):
+        closing = closing.replace("--helped", "--session-id=%s --helped" % session_id)
+    context, count = _assemble(units, intent, closing)
+    if not count:
+        return None
+    results = results[:count]
     if stateful:
         shown = [item["entry"]["id"] for item in results]
         if memory is not None:
             session.record(state_dir, session_id, memory, shown)
         if config.get("feedback", True):
             feedback.bump_shown(state_dir, shown)
-    return {"text": text, "intent": intent, "results": results}
+    return {"text": text, "intent": intent, "results": results, "context": context}
 
 
 def format_context(selection) -> str:
     """The context block for a selection, or "" when nothing should be injected."""
     if not selection or not selection["results"]:
         return ""
+    if "context" in selection:
+        return selection["context"]
     units = [_unit(number, item) for number, item in enumerate(selection["results"], 1)]
-    return _assemble(units, selection["intent"])
+    return _assemble(units, selection["intent"], CLOSING)[0]
 
 
 def build_context(prompt, cwd, config_path=None, registry_path=None, top=None, session_id=None) -> str:
@@ -220,7 +262,7 @@ def run_hook(stdin_text, config_path=None, registry_path=None, top=None) -> str:
     """
     try:
         payload = json.loads(stdin_text) if isinstance(stdin_text, str) and stdin_text.strip() else None
-        if not isinstance(payload, dict):
+        if not isinstance(payload, dict) or payload.get("message_type") == "status":
             return ""
         context = build_context(payload.get("prompt"), payload.get("cwd"), config_path, registry_path, top,
                                 session_id=payload.get("session_id"))

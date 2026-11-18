@@ -1,6 +1,6 @@
 ---
 name: skills-orchestrator
-description: Use at the start of a session and whenever a new kind of task begins, a skill or tool is installed, two skills seem to overlap, or you need to know which skill applies. Works for requests in any language and in any project. Finds the right skill among all the user's skills without loading them all, arbitrates conflicts between overlapping skills, and vets new skills for unsafe instructions. Works with any agent that can read files and run Python.
+description: Find the relevant installed skills and local methodology guides for a new task or project phase, in any language and in any project. Resolve overlapping instructions, discover cold skills by path, and inspect newly added skills.
 ---
 
 # Skills Orchestrator
@@ -20,16 +20,16 @@ or `--config FILE`) says where their skills live. If `python` fails, try `python
 Skills reach you in two ways: the registry (through `find`) and the list of skills your platform shows you as available. The registry cannot see
 skills a host injects that are not files on disk, such as browser, computer-use, research or document skills. Consider both before concluding anything.
 A `[skills-orchestrator]` block in your context lists the registry results that passed the confidence gates for that message:
-read the listed `SKILL.md` files by path. No block means nothing was confident, not that no skill exists; the Coverage rule still applies.
+consider each result against the current task. Respect owner pins before opening instructions. A silent hook still needs the Coverage rule.
 
-## Search in English
+## Search in English and the user's language
 
-Skills are written in English. Translate the request into 3 to 6 English keywords first, run `find` with them, and pass two other phrasings
-with `--also`. The tool maps common Spanish words, but do not rely on it. Example: `run.py find "browser console errors" --also "debug a web page" --also "inspect network requests"`.
+Keep product names and the user's own terms. Include a short English rendering of the task and a second phrasing with
+`--also` so an English catalog can serve other languages. The hook uses offline vocabulary and cannot translate arbitrary prose. Reply in the user's language.
 
 ## For every new kind of task
 
-1. Pick a profile from the table to filter. Without one, `find` detects the intent and ranks that profile higher.
+1. Start with an unrestricted search. The detected intent raises matching profiles in the ranking. Supply an explicit profile only for a strict filter.
 
    | The task is about | Profile |
    | --- | --- |
@@ -39,17 +39,17 @@ with `--also`. The tool maps common Spanish words, but do not rely on it. Exampl
    | Testing a business idea, pricing, sales material | `business` |
    | Analyzing software or sites the user did not write | `reverse` (see Never) |
 
-2. `run.py find "<English keywords>" --also "<phrasing 2>" --also "<phrasing 3>" --profile <profile> -k 5`
+2. `run.py find "<original terms>" --also "<English keywords>" --also "<another phrasing>" -k 5`
 3. Read the **whole** `SKILL.md` of the best result (the `read:` path), not just its description, and apply it.
-   A result labeled `TOOL` is a program, not a skill: it shows a URL instead of a path; read its `NOTE` and run it
-   as described. `(+N copies)` means other installed copies of the same skill exist; use the one shown.
+   For a `TOOL`, check that it is available in this host and permitted for the task. For a `WORKFLOW`, open the overview, then use
+   `run.py workflow <id>`. Pass verified completed phases with `--done` and explicit owner approvals with `--approved`. Recheck on phase changes.
 4. If the result belongs to an area where several skills compete (testing, planning, debugging, review, web
    access, output style), run `run.py conflicts --id <skill-id>` and follow the cluster's policy:
    `compose` = use each member for its own phase; `prefer-by-context` = use exactly one, chosen from what the
    project already uses; `owner-pin` = do nothing until the owner turns it on.
 5. If the results look unrelated, apply the coverage rule before deciding. Do not force a skill that does not fit.
 6. Tell the user in one line which skill you used and why, plus any conflict policy you applied. Then run
-   `run.py used <id> --helped yes|no` so ranking learns what helps and the hook stops repeating what you ignore.
+   `run.py used <id> --helped yes|no` after observing the outcome. Include the hook's `--session-id` when supplied.
 
 ## Coverage rule (mandatory)
 

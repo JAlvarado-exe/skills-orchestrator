@@ -107,14 +107,14 @@ EMOJI_PARTS = {0x200D, 0xFE0F}
 
 
 def _read_file(path: str, lowered: str):
-    """Return (text, issue). issue is None, "big", "nul" or "skip". text is None when the file is not scanned."""
+    """Distinguish incomplete coverage from an intentional binary or special-file skip."""
     try:
         if not stat.S_ISREG(os.stat(path).st_mode):
             return None, "skip"
         with open(path, "rb") as handle:
             raw = handle.read(MAX_FILE_BYTES + 1)
     except OSError:
-        return None, "skip"
+        return None, "unreadable"
     texty = lowered == "skill.md" or lowered.endswith(TEXT_EXT)
     binary = b"\x00" in raw[:4096]
     if len(raw) > MAX_FILE_BYTES:
@@ -205,7 +205,11 @@ def _scopes(rel_parts, name, skill_dirs, root, dirpath, path, hook_targets):
 
 
 def detect_license(root: str):
-    for name in sorted(os.listdir(root)):
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:
+        return {"file": None, "kind": "unknown"}
+    for name in names:
         if re.match(r"^(licen[sc]e|copying|unlicense)", name, _I) and os.path.isfile(os.path.join(root, name)):
             head = (_is_text(os.path.join(root, name)) or "")[:3000].lower()
             if any(marker in head for marker in RESTRICTIVE):
@@ -292,7 +296,8 @@ def vet_path(root: str, max_per_rule: int = 20) -> dict:
     root = os.path.abspath(root)
     files = []
     skill_dirs = set()
-    for dirpath, dirs, names in os.walk(root):
+    walk_errors = []
+    for dirpath, dirs, names in os.walk(root, onerror=walk_errors.append):
         dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
         if "SKILL.md" in names:
             skill_dirs.add(dirpath)
@@ -312,6 +317,10 @@ def vet_path(root: str, max_per_rule: int = 20) -> dict:
         findings.append({"rule": rule, "severity": severity, "file": rel, "line": line,
                          "snippet": snippet() if callable(snippet) else snippet, "msg": msg})
 
+    coverage = {"scanned_files": 0, "unreadable_directories": len(walk_errors), "unreadable_files": 0,
+                "oversized_files": 0, "binary_or_special_files": 0}
+    for error in walk_errors:
+        add("SKIP-03", "high", os.path.relpath(error.filename or root, root), 0, "", "directory could not be read")
     for dirpath, name in files:
         path = os.path.join(dirpath, name)
         rel = os.path.relpath(path, root)
@@ -328,11 +337,18 @@ def vet_path(root: str, max_per_rule: int = 20) -> dict:
             add("INST-02", "medium", rel, 1, "", "installer script: read it before running")
         text, issue = _read_file(path, lowered)
         if issue == "big":
+            coverage["oversized_files"] += 1
             add("SKIP-01", "high", rel, 1, "", "file not scanned: larger than 1 MB")
+        elif issue == "unreadable":
+            coverage["unreadable_files"] += 1
+            add("SKIP-03", "high", rel, 1, "", "file could not be read")
+        elif issue == "skip":
+            coverage["binary_or_special_files"] += 1
         elif issue == "nul":
             add("SKIP-02", "medium", rel, 1, "", "NUL bytes in a text file: scanned with the NUL bytes removed")
         if text is None:
             continue
+        coverage["scanned_files"] += 1
         if lowered == "package.json":
             try:
                 scripts = json.loads(text.lstrip("\ufeff")).get("scripts", {})
@@ -375,18 +391,21 @@ def vet_path(root: str, max_per_rule: int = 20) -> dict:
     elif license_info["kind"] == "restrictive":
         add("LIC-02", "low", license_info["file"], 1, "", "restrictive or copyleft license: do not redistribute inside another project")
     elif license_info["kind"] == "unknown":
-        add("LIC-03", "info", license_info["file"], 1, "", "license text not recognized: read it")
+        add("LIC-03", "info", license_info["file"] or ".", 1, "", "license could not be identified")
 
     rank = {s: i for i, s in enumerate(SEVERITIES)}
     findings.sort(key=lambda f: (rank[f["severity"]], f["rule"], f["file"], f["line"]))
     summary = {s: sum(1 for f in findings if f["severity"] == s) + sum(
         suppressed.get(rule, 0) for rule, sev in _rule_severity().items() if sev == s) for s in SEVERITIES}
     summary["total"] = sum(summary[s] for s in SEVERITIES)
-    return {"root": root, "license": license_info, "summary": summary, "suppressed": suppressed, "findings": findings}
+    coverage["complete"] = not (walk_errors or coverage["unreadable_files"] or coverage["oversized_files"])
+    return {"root": root, "license": license_info, "summary": summary, "suppressed": suppressed,
+            "coverage": coverage, "findings": findings}
 
 
 def _rule_severity():
     table = {rule: sev for rule, sev, _scopes, _rx, _m in TEXT_RULES}
     table.update({"UNI-01": "high", "UNI-02": "high", "INST-01": "medium", "INST-02": "medium", "HOOK-01": "medium",
-                  "MCP-01": "info", "LIC-01": "low", "LIC-02": "low", "LIC-03": "info", "SKIP-01": "high", "SKIP-02": "medium"})
+                  "MCP-01": "info", "LIC-01": "low", "LIC-02": "low", "LIC-03": "info", "SKIP-01": "high",
+                  "SKIP-02": "medium", "SKIP-03": "high"})
     return table

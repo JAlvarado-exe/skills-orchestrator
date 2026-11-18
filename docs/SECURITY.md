@@ -71,6 +71,7 @@ It is a scan of what an agent loads or a machine runs. It is **not** an audit of
 | UNI-01 | high | skill, hook, agent | Invisible characters: every Unicode format character (category Cf, which includes zero-width characters, bidirectional controls, soft hyphen, word joiners and a mid-file byte order mark) and the characters that render blank (U+034F, U+115F, U+1160, U+17B4, U+17B5, U+2800, U+3164, U+FFA0, variation selectors U+FE00 to U+FE0E). Not flagged: U+200D and U+FE0F (they occur in emoji) and a byte order mark at the very start of a file |
 | UNI-02 | high | skill, hook, agent | Unicode tag characters (U+E0000 to U+E007F, hidden ASCII) and the variation selector supplement (U+E0100 to U+E01EF) |
 | SKIP-01 | high | any file in scope | File not scanned: larger than 1 MB |
+| SKIP-03 | high | unreadable file in scope or directory | Review access and repeat the scan. JSON coverage reports counts even when individual findings exceed the display cap. |
 | SKIP-02 | medium | any file in scope | NUL bytes in a text file (`SKILL.md` or a Markdown, text, script, JSON, YAML or TOML file). The file is scanned with the NUL bytes removed |
 | INST-01 | medium | install | `package.json` lifecycle script (`preinstall`, `install`, `postinstall`, `prepare`, `prepublish`, `preuninstall`, `postuninstall`) |
 | INST-02 | medium | install | Installer script (shell, PowerShell, batch, Python or JavaScript): read it before running |

@@ -6,13 +6,12 @@ payload; one that is not a plain token gets no memory at all. Every failure mean
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 import time
 
-from .feedback import load_usage
-from .jsonio import read_json
+from .feedback import state_lock, usage_index
+from .jsonio import read_json, write_json_atomic
 
 SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,80}")
 SUPPRESS_AFTER = 2
@@ -37,17 +36,42 @@ def load(state_dir: str, session_id, now: float = None):
     try:
         data = read_json(path)
         if isinstance(data, dict) and isinstance(data.get("shown"), dict) and isinstance(data.get("started"), (int, float)):
-            return data
+            return dict(data, session_id=session_id)
     except (OSError, ValueError, RecursionError):
         pass
-    return {"started": now if now is not None else time.time(), "shown": {}}
+    return {"started": now if now is not None else time.time(), "shown": {}, "session_id": session_id}
 
 
-def suppressed(state_dir: str, memory) -> set:
+def sole_session(state_dir: str, ident: str, now: float):
+    """Attribute an older unscoped 'used' invocation only with one recent matching session."""
+    folder = _folder(state_dir)
+    if not os.path.isdir(folder):
+        return None
+    found = None
+    for name in os.listdir(folder):
+        sid, ext = os.path.splitext(name)
+        path = session_path(state_dir, sid)
+        if ext != ".json" or path is None:
+            continue
+        try:
+            expired = now - os.path.getmtime(path) > KEEP_DAYS * 86400
+        except OSError:
+            continue
+        if not expired and ident in load(state_dir, sid)["shown"]:
+            if found is not None:
+                return None
+            found = sid
+    return found
+
+
+def suppressed(state_dir: str, memory, sessions=None) -> set:
     """Ids shown SUPPRESS_AFTER times or more and not used since the session started."""
     if not memory:
         return set()
-    used = {row["id"] for row in load_usage(state_dir) if row["ts"] >= memory["started"]}
+    if sessions is None:
+        _totals, sessions = usage_index(state_dir)
+    uses = sessions.get(memory.get("session_id"), {})
+    used = {ident for ident, timestamp in uses.items() if timestamp >= round(memory["started"], 3)}
     return {ident for ident, count in memory["shown"].items() if isinstance(count, int) and count >= SUPPRESS_AFTER and ident not in used}
 
 
@@ -56,15 +80,16 @@ def record(state_dir: str, session_id, memory, ids, now: float = None) -> None:
     path = session_path(state_dir, session_id)
     if path is None or memory is None:
         return
-    for ident in ids:
-        memory["shown"][ident] = int(memory["shown"].get(ident, 0)) + 1
     try:
-        os.makedirs(_folder(state_dir), exist_ok=True)
-        temp = path + ".tmp"
-        with open(temp, "w", encoding="utf-8") as handle:
-            json.dump(memory, handle, ensure_ascii=False)
-        os.replace(temp, path)
-        _prune(state_dir, now if now is not None else time.time())
+        with state_lock(state_dir):
+            os.makedirs(_folder(state_dir), exist_ok=True)
+            current = load(state_dir, session_id, now=memory["started"])
+            for ident in ids:
+                count = current["shown"].get(ident, 0)
+                current["shown"][ident] = (count if isinstance(count, int) else 0) + 1
+            write_json_atomic(path, current)
+            memory.update(current)
+            _prune(state_dir, now if now is not None else time.time())
     except OSError:
         pass
 

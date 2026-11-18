@@ -44,7 +44,7 @@ def _defaults() -> dict:
             "use_platform_roots": True, "use_cwd_project_roots": True, "max_age_hours": DEFAULT_MAX_AGE_HOURS,
             "overrides": None, "profiles_dir": None, "blocked": [], "preferred": [], "min_score": None, "min_terms": None,
             "hook_min_chars": DEFAULT_HOOK_MIN_CHARS, "hook_skip_tags": [], "hook_top": DEFAULT_HOOK_TOP, "state_dir": None,
-            "session_memory": True, "feedback": True}
+            "session_memory": True, "feedback": True, "hook_cold_scan": True}
 
 
 def _warn(path: str, message: str) -> None:
@@ -170,6 +170,7 @@ def load_config(path: str = None, explicit: bool = False) -> dict:
     config["hook_top"] = _number(data, "hook_top", problems, DEFAULT_HOOK_TOP, integer=True, minimum=1)
     config["state_dir"] = _text_path(data.get("state_dir"), base, "state_dir", problems)
     config["session_memory"] = _flag(data, "session_memory", problems)
+    config["hook_cold_scan"] = _flag(data, "hook_cold_scan", problems)
     config["feedback"] = _flag(data, "feedback", problems)
     age = data.get("max_age_hours", DEFAULT_MAX_AGE_HOURS)
     if isinstance(age, (int, float)) and not isinstance(age, bool) and age >= 0:

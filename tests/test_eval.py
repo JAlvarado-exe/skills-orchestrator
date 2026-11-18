@@ -80,6 +80,16 @@ class CommandTests(unittest.TestCase):
         self.assertGreaterEqual(len(spanish), 15)
         self.assertEqual(len({case["id"] for case in cases}), 40)
 
+    def test_frozen_hook_quality_floor(self):
+        code, output = run_cli("eval", os.path.join(FIXTURE, "cases.json"),
+                               "--config", os.path.join(FIXTURE, "config.json"), "--json")
+        self.assertEqual(code, 0)
+        summary = json.loads(output)["summary"]
+        self.assertEqual(summary["hit_at_3"], 1.0)
+        self.assertGreaterEqual(summary["precision_at_3"], 0.95)
+        self.assertEqual(summary["silent_ok"], 10)
+        self.assertEqual(summary["forbidden_shown"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

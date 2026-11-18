@@ -97,6 +97,18 @@ class DoctorTests(unittest.TestCase):
 
 
 class PlatformTests(unittest.TestCase):
+    def test_antigravity_published_roots_resolve_in_an_isolated_home(self):
+        from orchestrator.cli import DEFAULT_PLATFORMS
+        from orchestrator.platforms import load_platforms
+        data = load_platforms(DEFAULT_PLATFORMS)
+        adapter = next(p for p in data["platforms"] if p["id"] == "antigravity")
+        self.assertEqual(adapter["status"], "documented-only")
+        with tempfile.TemporaryDirectory() as home:
+            for path in ("config", "antigravity-cli", "antigravity"):
+                os.makedirs(os.path.join(home, ".gemini", path, "skills"))
+            roots, _ = resolve_roots({"platforms": [adapter]}, home=home)
+            self.assertEqual(len(roots), 3)
+
     def test_resolve_roots_expands_home_and_reports_missing(self):
         with tempfile.TemporaryDirectory() as home:
             os.makedirs(os.path.join(home, ".claude", "skills"))
